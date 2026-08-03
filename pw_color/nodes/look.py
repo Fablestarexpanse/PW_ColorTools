@@ -80,15 +80,15 @@ class PW_Look(io.ComfyNode):
                     tooltip="Presets lead, sliders follow. Choosing one replaces the controls below.",
                 ),
                 # -- light --
-                io.Float.Input("exposure", default=0.0, min=-4.0, max=4.0, step=0.01, tooltip="Stops, applied in linear light."),
-                io.Float.Input("contrast", default=0.0, min=-1.0, max=1.0, step=0.01),
-                io.Float.Input("highlights", default=0.0, min=-1.0, max=1.0, step=0.01),
-                io.Float.Input("shadows", default=0.0, min=-1.0, max=1.0, step=0.01),
-                io.Float.Input("whites", default=0.0, min=-1.0, max=1.0, step=0.01),
-                io.Float.Input("blacks", default=0.0, min=-1.0, max=1.0, step=0.01),
+                io.Float.Input("exposure", default=0.0, min=-4.0, max=4.0, step=0.01, tooltip="Stops, applied in linear light.", display_mode=io.NumberDisplay.slider),
+                io.Float.Input("contrast", default=0.0, min=-1.0, max=1.0, step=0.01, display_mode=io.NumberDisplay.slider),
+                io.Float.Input("highlights", default=0.0, min=-1.0, max=1.0, step=0.01, display_mode=io.NumberDisplay.slider),
+                io.Float.Input("shadows", default=0.0, min=-1.0, max=1.0, step=0.01, display_mode=io.NumberDisplay.slider),
+                io.Float.Input("whites", default=0.0, min=-1.0, max=1.0, step=0.01, display_mode=io.NumberDisplay.slider),
+                io.Float.Input("blacks", default=0.0, min=-1.0, max=1.0, step=0.01, display_mode=io.NumberDisplay.slider),
                 # -- colour --
-                io.Float.Input("warmth", default=0.0, min=-1.0, max=1.0, step=0.01, tooltip="Blue to yellow."),
-                io.Float.Input("tint", default=0.0, min=-1.0, max=1.0, step=0.01, tooltip="Green to magenta."),
+                io.Float.Input("warmth", default=0.0, min=-1.0, max=1.0, step=0.01, tooltip="Blue to yellow.", display_mode=io.NumberDisplay.slider),
+                io.Float.Input("tint", default=0.0, min=-1.0, max=1.0, step=0.01, tooltip="Green to magenta.", display_mode=io.NumberDisplay.slider),
                 io.Float.Input(
                     "vibrance",
                     default=0.0,
@@ -96,8 +96,9 @@ class PW_Look(io.ComfyNode):
                     max=1.0,
                     step=0.01,
                     tooltip="Lifts muted colour more than colour that is already saturated.",
+                    display_mode=io.NumberDisplay.slider,
                 ),
-                io.Float.Input("saturation", default=1.0, min=0.0, max=2.0, step=0.01),
+                io.Float.Input("saturation", default=1.0, min=0.0, max=2.0, step=0.01, display_mode=io.NumberDisplay.slider),
                 # -- glow (spatial) --
                 io.Float.Input(
                     "glow",
@@ -110,11 +111,12 @@ class PW_Look(io.ComfyNode):
                         "LUT-exportable: anything above zero means a .cube export cannot carry "
                         "the whole look."
                     ),
+                    display_mode=io.NumberDisplay.slider,
                 ),
-                io.Float.Input("glow_radius", default=24.0, min=1.0, max=200.0, step=1.0, optional=True),
-                io.Float.Input("glow_threshold", default=0.65, min=0.0, max=1.0, step=0.01, optional=True),
+                io.Float.Input("glow_radius", default=24.0, min=1.0, max=200.0, step=1.0, optional=True, display_mode=io.NumberDisplay.slider),
+                io.Float.Input("glow_threshold", default=0.65, min=0.0, max=1.0, step=0.01, optional=True, display_mode=io.NumberDisplay.slider),
                 # -- master --
-                io.Float.Input("strength", default=1.0, min=0.0, max=1.0, step=0.01, tooltip="Blend the whole grade toward the input."),
+                io.Float.Input("strength", default=1.0, min=0.0, max=1.0, step=0.01, tooltip="Blend the whole grade toward the input.", display_mode=io.NumberDisplay.slider),
                 io.Combo.Input("blend", options=list(BLEND_MODES), default="normal", optional=True),
                 # -- structured / wired --
                 io.String.Input(
@@ -124,7 +126,7 @@ class PW_Look(io.ComfyNode):
                     optional=True,
                     tooltip="Eight-band HSL mixer, written by the node's UI.",
                 ),
-                io.Float.Input("gradient_map", default=0.0, min=0.0, max=1.0, step=0.01, optional=True),
+                io.Float.Input("gradient_map", default=0.0, min=0.0, max=1.0, step=0.01, optional=True, display_mode=io.NumberDisplay.slider),
                 io.Combo.Input("gradient_blend", options=list(GRADIENT_BLENDS), default="colour", optional=True),
                 io.Custom("PALETTE").Input(
                     "palette",
@@ -133,7 +135,7 @@ class PW_Look(io.ComfyNode):
                 ),
                 io.Mask.Input("mask", optional=True, tooltip="Restrict the grade to a region. White is graded."),
                 io.Image.Input("reference", optional=True, tooltip="Match this image's colour before grading."),
-                io.Float.Input("reference_strength", default=1.0, min=0.0, max=1.0, step=0.01, optional=True),
+                io.Float.Input("reference_strength", default=1.0, min=0.0, max=1.0, step=0.01, optional=True, display_mode=io.NumberDisplay.slider),
                 io.Combo.Input(
                     "reference_mode",
                     options=list(MATCH_TIERS),

@@ -17,17 +17,14 @@ import { Lattice, DEFAULT_SIZE } from '../core/lattice.ts';
 import { buildSampleFn } from '../core/ops.ts';
 import { isComparing, onCompareChange } from '../widgets/compare.ts';
 import { onRunComplete } from '../widgets/run_events.ts';
-import { addResetMenu } from '../widgets/reset.ts';
-import { openNumericEntry } from '../widgets/numeric_entry.ts';
+import { addResetMenu, resetNode } from '../widgets/reset.ts';
 import { Segmented } from '../widgets/segmented.ts';
-import { Slider } from '../widgets/slider.ts';
 import { BADGE } from '../theme.ts';
 import { headerChip, hit, sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
-import { resetNode } from '../widgets/reset.ts';
+import { ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
 
 /** The live 2D context, for measuring chips during hit tests. */
 const ctx0 = (): Ctx | null => (globalThis as any).app?.canvas?.ctx ?? null;
-import { ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
 
 const M = PW.metrics;
 const HEADER_H = 18;
@@ -46,14 +43,12 @@ const CHANNEL_TABS = [
 interface CurvesUI {
   editor: CurveEditor;
   tabs: Segmented;
-  strength: Slider;
   preview: Preview;
   layout: (node: NodeLike) => {
     header: Rect;
     preview: Rect;
     tabs: Rect;
     editor: Rect;
-    strength: Rect;
   };
   /** Re-bake the lattice the preview samples. Cheap enough to run per edit. */
   rebake: (node: NodeLike) => void;
@@ -111,12 +106,6 @@ async function loadHistogram(node: NodeLike, ui: CurvesUI): Promise<void> {
 function makeUI(node: NodeLike): CurvesUI {
   const editor = new CurveEditor();
   const tabs = new Segmented(CHANNEL_TABS);
-  const strengthWidget = getWidget(node, 'strength');
-  const strength = new Slider(
-    { label: 'Strength', min: 0, max: 1, neutral: 1, default: 1, step: 0.01, decimals: 2 },
-    typeof strengthWidget?.value === 'number' ? strengthWidget.value : 1,
-  );
-
   const layout = (n: NodeLike) => {
     const x = M.padding;
     const w = n.size[0] - M.padding * 2;
@@ -130,10 +119,8 @@ function makeUI(node: NodeLike): CurvesUI {
     y += PREVIEW_H + M.gapControl;
     const tabsR = { x, y, w, h: TABS_H };
     y += TABS_H + M.gapControl;
-    const editorH = Math.max(MIN_EDITOR_H, n.size[1] - y - ROW_H - M.gapSection - M.padding);
-    const editorR = { x, y, w, h: editorH };
-    y += editorH + M.gapControl;
-    return { header, preview: previewR, tabs: tabsR, editor: editorR, strength: { x, y, w, h: ROW_H } };
+    const editorH = Math.max(MIN_EDITOR_H, n.size[1] - y - M.gapSection - M.padding);
+    return { header, preview: previewR, tabs: tabsR, editor: { x, y, w, h: editorH } };
   };
 
   const preview = new Preview();
@@ -153,7 +140,7 @@ function makeUI(node: NodeLike): CurvesUI {
     preview.digest = JSON.stringify([op.params, op.strength]);
   };
 
-  const ui: CurvesUI = { editor, tabs, strength, preview, layout, rebake };
+  const ui: CurvesUI = { editor, tabs, preview, layout, rebake };
   editor.state = readState(node);
   editor.onChange = () => {
     writeState(node, ui);
@@ -176,7 +163,6 @@ export function registerCurves(): void {
           const ui = uis.get(node);
           if (!ui) return;
           ui.editor.resetAll();
-          ui.strength.value = 1;
           ui.rebake(node);
         },
       }));
@@ -187,11 +173,10 @@ export function registerCurves(): void {
         const ui = makeUI(this);
         uis.set(this, ui);
 
-        // Hide the widgets we draw ourselves. `curves` is the serialisation
-        // channel, not a control; `strength` has a proper slider below, and
-        // showing both meant two controls for one value — which is exactly the
-        // kind of thing that makes a node pack feel bolted together.
-        for (const name of ['curves', 'strength']) {
+        // `curves` is the serialisation channel, not a control — the editor
+        // below is how you set it. Every other control is a native ComfyUI
+        // widget, so it looks and behaves like the rest of the app.
+        for (const name of ['curves']) {
           const w = getWidget(this, name);
           if (!w) continue;
           w.type = 'hidden';
@@ -235,7 +220,6 @@ export function registerCurves(): void {
           ui.preview.draw(ctx, L.preview);
           ui.tabs.draw(ctx, L.tabs);
           ui.editor.draw(ctx, L.editor);
-          ui.strength.draw(ctx, L.strength);
         });
 
         chainHandler(this, 'onMouseDown', function (this: NodeLike, e: any, pos: [number, number]) {
@@ -248,7 +232,6 @@ export function registerCurves(): void {
             resetNode(this, {
               after: () => {
                 ui.editor.resetAll();
-                ui.strength.value = 1;
                 ui.rebake(this);
               },
             });
@@ -259,26 +242,6 @@ export function registerCurves(): void {
           if (tab) {
             ui.editor.channel = tab as ChannelId;
             this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          // Click the readout to type an exact value.
-          if (hit(ui.strength.valueRect(L.strength), x, y)) {
-            openNumericEntry(this, ui.strength.valueRect(L.strength), {
-              value: ui.strength.value,
-              min: ui.strength.spec.min,
-              max: ui.strength.spec.max,
-              decimals: ui.strength.spec.decimals,
-              onCommit: (v) => {
-                ui.strength.value = v;
-                syncStrength(this, ui);
-                ui.rebake(this);
-              },
-            });
-            return true;
-          }
-          if (ui.strength.onPointerDown(x, y, L.strength, now)) {
-            syncStrength(this, ui);
-            ui.rebake(this);
             return true;
           }
           if (hit(L.preview, x, y)) {
@@ -319,11 +282,6 @@ export function registerCurves(): void {
             this.setDirtyCanvas?.(true, true);
             return true;
           }
-          if (ui.strength.onPointerMove(pos[0], pos[1], L.strength, shift)) {
-            syncStrength(this, ui);
-            ui.rebake(this);
-            return true;
-          }
           if (ui.editor.onPointerMove(pos[0], pos[1], L.editor, shift)) {
             this.setDirtyCanvas?.(true, true);
             return ui.editor.isDragging;
@@ -332,7 +290,7 @@ export function registerCurves(): void {
         });
 
         chainHandler(this, 'onMouseUp', function (this: NodeLike) {
-          const a = ui.strength.onPointerUp();
+          const a = false;
           const b = ui.editor.onPointerUp();
           const c = ui.preview.onPointerUp();
           if (a || b || c) this.setDirtyCanvas?.(true, true);
@@ -359,8 +317,6 @@ export function registerCurves(): void {
             360,
           );
           ui.editor.state = readState(this);
-          const sw = getWidget(this, 'strength');
-          if (typeof sw?.value === 'number') ui.strength.value = sw.value;
           ui.rebake(this);
           void loadHistogram(this, ui);
           void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
@@ -371,11 +327,3 @@ export function registerCurves(): void {
   });
 }
 
-function syncStrength(node: NodeLike, ui: CurvesUI): void {
-  const w = getWidget(node, 'strength');
-  if (w && w.value !== ui.strength.value) {
-    w.value = ui.strength.value;
-    w.callback?.(w.value);
-  }
-  node.setDirtyCanvas?.(true, true);
-}

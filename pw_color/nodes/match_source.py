@@ -56,6 +56,7 @@ class PW_MatchSource(io.ComfyNode):
                     max=1.0,
                     step=0.01,
                     tooltip="Blend toward the uncorrected image. 1.0 is a full correction.",
+                    display_mode=io.NumberDisplay.slider,
                 ),
                 io.Combo.Input(
                     "space",
@@ -78,6 +79,7 @@ class PW_MatchSource(io.ComfyNode):
                         "Ceiling on the per-channel contrast correction. Guards against a flat "
                         "sampled region — a clear sky — producing an enormous gain."
                     ),
+                    display_mode=io.NumberDisplay.slider,
                 ),
             ],
             outputs=[

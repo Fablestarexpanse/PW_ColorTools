@@ -33,7 +33,7 @@ class PW_Palette(io.ComfyNode):
             ),
             inputs=[
                 io.Image.Input("image"),
-                io.Int.Input("count", default=5, min=1, max=16, tooltip="How many colours to extract."),
+                io.Int.Input("count", default=5, min=1, max=16, tooltip="How many colours to extract.", display_mode=io.NumberDisplay.slider),
                 io.Mask.Input(
                     "mask",
                     optional=True,

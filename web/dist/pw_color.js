@@ -428,10 +428,10 @@ var CurveEditor = class {
     const colour = CHANNEL_COLOUR[this.channel];
     this.points.forEach((p, i) => {
       const [x, y] = this.toCanvas(r, p);
-      const active2 = i === this.dragIndex || i === this.hoverIndex;
+      const active = i === this.dragIndex || i === this.hoverIndex;
       ctx.beginPath();
-      ctx.arc(x, y, active2 ? POINT_RADIUS + 1.5 : POINT_RADIUS, 0, Math.PI * 2);
-      ctx.fillStyle = active2 ? PW.color.text : PW.color.panel;
+      ctx.arc(x, y, active ? POINT_RADIUS + 1.5 : POINT_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = active ? PW.color.text : PW.color.panel;
       ctx.fill();
       ctx.strokeStyle = colour;
       ctx.lineWidth = 1.5;
@@ -1330,10 +1330,10 @@ function hueDistance(h, centre) {
 }
 function opHsl(rgb, p) {
   const bands = p.bands ?? {};
-  const active2 = Object.entries(bands).filter(
+  const active = Object.entries(bands).filter(
     ([, v]) => v && ((v.hue ?? 0) !== 0 || (v.sat ?? 0) !== 0 || (v.lum ?? 0) !== 0)
   );
-  if (active2.length === 0) return rgb;
+  if (active.length === 0) return rgb;
   const lab = srgbToOklab(rgb[0], rgb[1], rgb[2]);
   const l = lab[0], a = lab[1], b = lab[2];
   const c = Math.sqrt(a * a + b * b);
@@ -1600,78 +1600,6 @@ function addResetMenu(nodeType, opts = () => ({})) {
   };
 }
 
-// src/widgets/numeric_entry.ts
-var active = null;
-function toPage(canvas, node, r) {
-  const ds = canvas.__pwds ?? null;
-  const app2 = globalThis.app;
-  const scale = app2?.canvas?.ds?.scale ?? 1;
-  const [ox, oy] = app2?.canvas?.ds?.offset ?? [0, 0];
-  const box = canvas.getBoundingClientRect();
-  void ds;
-  return {
-    x: box.left + (node.pos[0] + r.x + ox) * scale,
-    y: box.top + (node.pos[1] + r.y + oy) * scale,
-    w: r.w * scale,
-    h: r.h * scale
-  };
-}
-function openNumericEntry(node, rect, opts) {
-  close();
-  const app2 = globalThis.app;
-  const canvas = app2?.canvas?.canvas;
-  if (!canvas) return;
-  const page = toPage(canvas, node, rect);
-  const input = document.createElement("input");
-  input.type = "text";
-  input.value = opts.value.toFixed(opts.decimals ?? 2);
-  Object.assign(input.style, {
-    position: "fixed",
-    left: `${page.x}px`,
-    top: `${page.y}px`,
-    width: `${Math.max(48, page.w)}px`,
-    height: `${Math.max(18, page.h)}px`,
-    zIndex: "9999",
-    background: PW.color.surface,
-    color: PW.color.text,
-    border: `1px solid ${PW.color.accent}`,
-    borderRadius: `${PW.metrics.radiusControl}px`,
-    font: PW.font.mono,
-    textAlign: "right",
-    padding: "0 4px",
-    outline: "none"
-  });
-  let done = false;
-  const commit = (apply) => {
-    if (done) return;
-    done = true;
-    const raw = input.value.trim();
-    input.remove();
-    if (active === input) active = null;
-    if (!apply || raw === "") return;
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return;
-    let v = parsed;
-    if (opts.min !== void 0) v = Math.max(opts.min, v);
-    if (opts.max !== void 0) v = Math.min(opts.max, v);
-    opts.onCommit(v);
-  };
-  input.addEventListener("keydown", (e) => {
-    e.stopPropagation();
-    if (e.key === "Enter") commit(true);
-    else if (e.key === "Escape") commit(false);
-  });
-  input.addEventListener("blur", () => commit(true));
-  document.body.appendChild(input);
-  input.focus();
-  input.select();
-  active = input;
-}
-function close() {
-  active?.blur();
-  active = null;
-}
-
 // src/widgets/segmented.ts
 var Segmented = class {
   segments;
@@ -1689,20 +1617,20 @@ var Segmented = class {
   draw(ctx, r) {
     const cells = this.cellRects(r);
     this.segments.forEach((seg, i) => {
-      const active2 = seg.id === this.selected;
+      const active = seg.id === this.selected;
       const cell = cells[i];
       fillPanel(
         ctx,
         cell,
-        active2 ? PW.color.chipActive : PW.color.chip,
+        active ? PW.color.chipActive : PW.color.chip,
         PW.metrics.radiusControl,
-        active2 ? PW.color.border : PW.color.borderSoft
+        active ? PW.color.border : PW.color.borderSoft
       );
       text(ctx, seg.label, cell.x + cell.w / 2, cell.y + cell.h / 2, {
-        colour: active2 ? seg.colour ?? PW.color.text : PW.color.textMute,
+        colour: active ? seg.colour ?? PW.color.text : PW.color.textMute,
         align: "center"
       });
-      if (active2 && seg.colour) {
+      if (active && seg.colour) {
         ctx.fillStyle = seg.colour;
         ctx.fillRect(cell.x + 6, cell.y + cell.h - 3, cell.w - 12, 2);
       }
@@ -1719,111 +1647,6 @@ var Segmented = class {
       }
     }
     return null;
-  }
-};
-
-// src/widgets/slider.ts
-var LABEL_W = 86;
-var VALUE_W = 52;
-var Slider = class {
-  spec;
-  value;
-  dragging = false;
-  dragStartX = 0;
-  dragStartValue = 0;
-  lastClick = 0;
-  constructor(spec, value) {
-    const neutral = spec.neutral ?? spec.min;
-    this.spec = {
-      label: spec.label,
-      min: spec.min,
-      max: spec.max,
-      neutral,
-      default: spec.default ?? neutral,
-      step: spec.step ?? 0.01,
-      decimals: spec.decimals ?? 2,
-      unit: spec.unit ?? ""
-    };
-    this.value = value ?? this.spec.default;
-  }
-  trackRect(r) {
-    const x = r.x + LABEL_W;
-    return { x, y: r.y + r.h / 2 - 3, w: r.w - LABEL_W - VALUE_W - PW.metrics.gapControl, h: 6 };
-  }
-  toValue(px, track) {
-    const t = Math.min(1, Math.max(0, (px - track.x) / track.w));
-    return this.spec.min + t * (this.spec.max - this.spec.min);
-  }
-  toPixel(v, track) {
-    const t = (v - this.spec.min) / (this.spec.max - this.spec.min);
-    return track.x + Math.min(1, Math.max(0, t)) * track.w;
-  }
-  quantise(v) {
-    const { min, max, step } = this.spec;
-    const snapped = Math.round(v / step) * step;
-    return Math.min(max, Math.max(min, snapped));
-  }
-  draw(ctx, r) {
-    const track = this.trackRect(r);
-    const { neutral } = this.spec;
-    text(ctx, this.spec.label, r.x, r.y + r.h / 2, { colour: PW.color.textDim });
-    fillPanel(ctx, track, PW.color.well, 3);
-    const nx = this.toPixel(neutral, track);
-    const vx = this.toPixel(this.value, track);
-    if (Math.abs(vx - nx) > 0.5) {
-      fillPanel(ctx, { x: Math.min(nx, vx), y: track.y, w: Math.abs(vx - nx), h: track.h }, PW.color.accent, 3);
-    }
-    if (neutral > this.spec.min && neutral < this.spec.max) {
-      ctx.fillStyle = PW.color.textMute;
-      ctx.fillRect(Math.round(nx), track.y - 2, 1, track.h + 4);
-    }
-    ctx.beginPath();
-    ctx.arc(vx, track.y + track.h / 2, PW.metrics.knob, 0, Math.PI * 2);
-    ctx.fillStyle = PW.color.text;
-    ctx.fill();
-    text(ctx, formatValue(this.value, this.spec.decimals) + this.spec.unit, r.x + r.w, r.y + r.h / 2, {
-      colour: PW.color.textMute,
-      align: "right",
-      font: PW.font.mono
-    });
-  }
-  /** Hit region for the numeric readout, so it can be clicked to type. */
-  valueRect(r) {
-    return { x: r.x + r.w - VALUE_W, y: r.y, w: VALUE_W, h: r.h };
-  }
-  /** @returns true if the event was consumed. */
-  onPointerDown(x, y, r, now) {
-    const track = this.trackRect(r);
-    const knobX = this.toPixel(this.value, track);
-    const onKnob = Math.abs(x - knobX) <= PW.metrics.hitSlop && Math.abs(y - (track.y + track.h / 2)) <= PW.metrics.hitSlop;
-    if (!onKnob && !hit(track, x, y, PW.metrics.hitSlop)) return false;
-    if (now - this.lastClick < PW.interaction.doubleClickMs) {
-      this.value = this.spec.default;
-      this.lastClick = 0;
-      return true;
-    }
-    this.lastClick = now;
-    this.dragging = true;
-    this.dragStartX = x;
-    this.dragStartValue = onKnob ? this.value : this.quantise(this.toValue(x, track));
-    this.value = this.dragStartValue;
-    return true;
-  }
-  onPointerMove(x, _y, r, shift) {
-    if (!this.dragging) return false;
-    const track = this.trackRect(r);
-    const perPixel = (this.spec.max - this.spec.min) / track.w;
-    const scale = shift ? PW.interaction.fineDragScale : 1;
-    this.value = this.quantise(this.dragStartValue + (x - this.dragStartX) * perPixel * scale);
-    return true;
-  }
-  onPointerUp() {
-    const was = this.dragging;
-    this.dragging = false;
-    return was;
-  }
-  get isDragging() {
-    return this.dragging;
   }
 };
 
@@ -1902,11 +1725,6 @@ async function loadHistogram(node, ui) {
 function makeUI(node) {
   const editor = new CurveEditor();
   const tabs = new Segmented(CHANNEL_TABS);
-  const strengthWidget = getWidget(node, "strength");
-  const strength = new Slider(
-    { label: "Strength", min: 0, max: 1, neutral: 1, default: 1, step: 0.01, decimals: 2 },
-    typeof strengthWidget?.value === "number" ? strengthWidget.value : 1
-  );
   const layout3 = (n) => {
     const x = M.padding;
     const w = n.size[0] - M.padding * 2;
@@ -1917,10 +1735,8 @@ function makeUI(node) {
     y += PREVIEW_H + M.gapControl;
     const tabsR = { x, y, w, h: TABS_H };
     y += TABS_H + M.gapControl;
-    const editorH = Math.max(MIN_EDITOR_H, n.size[1] - y - ROW_H - M.gapSection - M.padding);
-    const editorR = { x, y, w, h: editorH };
-    y += editorH + M.gapControl;
-    return { header, preview: previewR, tabs: tabsR, editor: editorR, strength: { x, y, w, h: ROW_H } };
+    const editorH = Math.max(MIN_EDITOR_H, n.size[1] - y - M.gapSection - M.padding);
+    return { header, preview: previewR, tabs: tabsR, editor: { x, y, w, h: editorH } };
   };
   const preview = new Preview();
   const rebake = (n) => {
@@ -1935,7 +1751,7 @@ function makeUI(node) {
     preview.lattice = Lattice.fromFn(buildSampleFn([op]), DEFAULT_SIZE);
     preview.digest = JSON.stringify([op.params, op.strength]);
   };
-  const ui = { editor, tabs, strength, preview, layout: layout3, rebake };
+  const ui = { editor, tabs, preview, layout: layout3, rebake };
   editor.state = readState(node);
   editor.onChange = () => {
     writeState(node, ui);
@@ -1954,7 +1770,6 @@ function registerCurves() {
           const ui = uis.get(node);
           if (!ui) return;
           ui.editor.resetAll();
-          ui.strength.value = 1;
           ui.rebake(node);
         }
       }));
@@ -1963,7 +1778,7 @@ function registerCurves() {
         const r = onCreated?.apply(this, arguments);
         const ui = makeUI(this);
         uis.set(this, ui);
-        for (const name of ["curves", "strength"]) {
+        for (const name of ["curves"]) {
           const w = getWidget(this, name);
           if (!w) continue;
           w.type = "hidden";
@@ -1997,7 +1812,6 @@ function registerCurves() {
           ui.preview.draw(ctx, L.preview);
           ui.tabs.draw(ctx, L.tabs);
           ui.editor.draw(ctx, L.editor);
-          ui.strength.draw(ctx, L.strength);
         });
         chainHandler(this, "onMouseDown", function(e, pos) {
           const L = ui.layout(this);
@@ -2008,7 +1822,6 @@ function registerCurves() {
             resetNode(this, {
               after: () => {
                 ui.editor.resetAll();
-                ui.strength.value = 1;
                 ui.rebake(this);
               }
             });
@@ -2018,25 +1831,6 @@ function registerCurves() {
           if (tab) {
             ui.editor.channel = tab;
             this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          if (hit(ui.strength.valueRect(L.strength), x, y)) {
-            openNumericEntry(this, ui.strength.valueRect(L.strength), {
-              value: ui.strength.value,
-              min: ui.strength.spec.min,
-              max: ui.strength.spec.max,
-              decimals: ui.strength.spec.decimals,
-              onCommit: (v) => {
-                ui.strength.value = v;
-                syncStrength(this, ui);
-                ui.rebake(this);
-              }
-            });
-            return true;
-          }
-          if (ui.strength.onPointerDown(x, y, L.strength, now)) {
-            syncStrength(this, ui);
-            ui.rebake(this);
             return true;
           }
           if (hit(L.preview, x, y)) {
@@ -2070,11 +1864,6 @@ function registerCurves() {
             this.setDirtyCanvas?.(true, true);
             return true;
           }
-          if (ui.strength.onPointerMove(pos[0], pos[1], L.strength, shift)) {
-            syncStrength(this, ui);
-            ui.rebake(this);
-            return true;
-          }
           if (ui.editor.onPointerMove(pos[0], pos[1], L.editor, shift)) {
             this.setDirtyCanvas?.(true, true);
             return ui.editor.isDragging;
@@ -2082,7 +1871,7 @@ function registerCurves() {
           return false;
         });
         chainHandler(this, "onMouseUp", function() {
-          const a = ui.strength.onPointerUp();
+          const a = false;
           const b = ui.editor.onPointerUp();
           const c = ui.preview.onPointerUp();
           if (a || b || c) this.setDirtyCanvas?.(true, true);
@@ -2102,8 +1891,6 @@ function registerCurves() {
             360
           );
           ui.editor.state = readState(this);
-          const sw = getWidget(this, "strength");
-          if (typeof sw?.value === "number") ui.strength.value = sw.value;
           ui.rebake(this);
           void loadHistogram(this, ui);
           void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
@@ -2112,14 +1899,6 @@ function registerCurves() {
       };
     }
   });
-}
-function syncStrength(node, ui) {
-  const w = getWidget(node, "strength");
-  if (w && w.value !== ui.strength.value) {
-    w.value = ui.strength.value;
-    w.callback?.(w.value);
-  }
-  node.setDirtyCanvas?.(true, true);
 }
 
 // src/nodes/spatial_preview.ts

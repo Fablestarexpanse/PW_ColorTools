@@ -110,6 +110,7 @@ class PW_Curves(io.ComfyNode):
                     max=1.0,
                     step=0.01,
                     tooltip="Blend toward the identity curve.",
+                    display_mode=io.NumberDisplay.slider,
                 ),
                 io.Combo.Input(
                     "preset",

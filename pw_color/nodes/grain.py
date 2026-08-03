@@ -72,6 +72,7 @@ class PW_Grain(io.ComfyNode):
                     max=1.0,
                     step=0.005,
                     tooltip="Overall grain strength. 0.03-0.08 is a normal range.",
+                    display_mode=io.NumberDisplay.slider,
                 ),
                 io.Float.Input(
                     "size",
@@ -83,12 +84,13 @@ class PW_Grain(io.ComfyNode):
                         "Grain diameter in output pixels, measured at half maximum. Absolute: "
                         "1.4 looks the same at 1024 and at 4096."
                     ),
+                    display_mode=io.NumberDisplay.slider,
                 ),
-                io.Float.Input("shadows", default=0.20, min=0.0, max=2.0, step=0.01, tooltip="Grain weight in the shadows."),
-                io.Float.Input("midtones", default=1.00, min=0.0, max=2.0, step=0.01, tooltip="Grain weight in the midtones."),
-                io.Float.Input("highlights", default=0.10, min=0.0, max=2.0, step=0.01, tooltip="Grain weight in the highlights."),
+                io.Float.Input("shadows", default=0.20, min=0.0, max=2.0, step=0.01, tooltip="Grain weight in the shadows.", display_mode=io.NumberDisplay.slider),
+                io.Float.Input("midtones", default=1.00, min=0.0, max=2.0, step=0.01, tooltip="Grain weight in the midtones.", display_mode=io.NumberDisplay.slider),
+                io.Float.Input("highlights", default=0.10, min=0.0, max=2.0, step=0.01, tooltip="Grain weight in the highlights.", display_mode=io.NumberDisplay.slider),
                 io.Combo.Input("blend", options=list(GRAIN_BLEND_MODES), default="overlay"),
-                io.Float.Input("opacity", default=1.0, min=0.0, max=1.0, step=0.01),
+                io.Float.Input("opacity", default=1.0, min=0.0, max=1.0, step=0.01, display_mode=io.NumberDisplay.slider),
                 io.Int.Input("seed", default=0, min=0, max=0xFFFFFFFF, control_after_generate=True),
                 io.Boolean.Input(
                     "vary_per_frame",
@@ -107,6 +109,7 @@ class PW_Grain(io.ComfyNode):
                         "independent channels, which reads as digital sensor noise rather than "
                         "film. Ignored when a plate is used."
                     ),
+                    display_mode=io.NumberDisplay.slider,
                 ),
                 io.Combo.Input(
                     "plate",
@@ -123,8 +126,8 @@ class PW_Grain(io.ComfyNode):
                         "maps to output batch index, so an image-sequence loader gives per-frame plates."
                     ),
                 ),
-                io.Float.Input("red", default=1.0, min=0.0, max=2.0, step=0.05, optional=True),
-                io.Float.Input("green", default=1.0, min=0.0, max=2.0, step=0.05, optional=True),
+                io.Float.Input("red", default=1.0, min=0.0, max=2.0, step=0.05, optional=True, display_mode=io.NumberDisplay.slider),
+                io.Float.Input("green", default=1.0, min=0.0, max=2.0, step=0.05, optional=True, display_mode=io.NumberDisplay.slider),
                 io.Float.Input(
                     "blue",
                     default=1.15,
@@ -133,6 +136,7 @@ class PW_Grain(io.ComfyNode):
                     step=0.05,
                     optional=True,
                     tooltip="Defaults hotter than red and green, matching real stock.",
+                    display_mode=io.NumberDisplay.slider,
                 ),
                 io.Float.Input(
                     "dither",
@@ -145,6 +149,7 @@ class PW_Grain(io.ComfyNode):
                         "Sub-LSB noise added before 8-bit quantisation, in code values. Kills "
                         "banding in skies. Leave at 1.0 unless you have a reason."
                     ),
+                    display_mode=io.NumberDisplay.slider,
                 ),
                 io.Custom("LOOK").Input("look_in", optional=True),
             ],
