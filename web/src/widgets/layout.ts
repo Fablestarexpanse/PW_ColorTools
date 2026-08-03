@@ -35,3 +35,21 @@ export function fitPanel(node: NodeLike, panelHeight: number, minWidth: number):
   node.size[0] = Math.max(node.size[0], minWidth);
   node.size[1] = Math.max(node.size[1], widgetHeight(node) + panelHeight);
 }
+
+/**
+ * Enforce the minimum height at draw time.
+ *
+ * Doing this only at creation is not enough: LiteGraph applies a saved
+ * workflow's size *after* `onConfigure` runs, so a node saved before a panel
+ * existed comes back too short and clips it. Checking while drawing is
+ * self-correcting whatever the ordering, converges in one frame, and costs a
+ * comparison.
+ *
+ * @returns true if the node was resized, so the caller can request a redraw.
+ */
+export function ensureHeight(node: NodeLike, panelHeight: number, minWidth: number): boolean {
+  const needed = widgetHeight(node) + panelHeight;
+  const grew = node.size[1] < needed - 0.5 || node.size[0] < minWidth - 0.5;
+  if (grew) fitPanel(node, panelHeight, minWidth);
+  return grew;
+}

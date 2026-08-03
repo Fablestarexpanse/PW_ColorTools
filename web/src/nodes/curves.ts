@@ -22,8 +22,12 @@ import { openNumericEntry } from '../widgets/numeric_entry.ts';
 import { Segmented } from '../widgets/segmented.ts';
 import { Slider } from '../widgets/slider.ts';
 import { BADGE } from '../theme.ts';
-import { hit, sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
-import { fitPanel, widgetHeight } from '../widgets/layout.ts';
+import { headerChip, hit, sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
+import { resetNode } from '../widgets/reset.ts';
+
+/** The live 2D context, for measuring chips during hit tests. */
+const ctx0 = (): Ctx | null => (globalThis as any).app?.canvas?.ctx ?? null;
+import { ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
 
 const M = PW.metrics;
 const HEADER_H = 18;
@@ -223,8 +227,10 @@ export function registerCurves(): void {
 
         chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
           if ((this as any).flags?.collapsed) return;
+          if (ensureHeight(this, HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding, 360)) this.setDirtyCanvas?.(true, true);
           const L = ui.layout(this);
           sectionHeader(ctx, 'Curves', L.header, BADGE.lut);
+          headerChip(ctx, L.header, 'reset', BADGE.lut.label);
           ui.preview.comparing = isComparing();
           ui.preview.draw(ctx, L.preview);
           ui.tabs.draw(ctx, L.tabs);
@@ -237,6 +243,17 @@ export function registerCurves(): void {
           const [x, y] = pos;
           const now = e?.timeStamp ?? 0;
           const shift = !!e?.shiftKey;
+
+          if (hit(headerChip(ctx0(), L.header, 'reset', BADGE.lut.label), x, y, 3)) {
+            resetNode(this, {
+              after: () => {
+                ui.editor.resetAll();
+                ui.strength.value = 1;
+                ui.rebake(this);
+              },
+            });
+            return true;
+          }
 
           const tab = ui.tabs.onPointerDown(x, y, L.tabs);
           if (tab) {
@@ -333,6 +350,14 @@ export function registerCurves(): void {
         const r = onConfigure?.apply(this, arguments as any);
         const ui = uis.get(this);
         if (ui) {
+          // A workflow saved before the preview existed carries a size that is
+          // now too short, and it is applied after creation — so re-fit here
+          // or the panel is clipped.
+          fitPanel(
+            this,
+            HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding,
+            360,
+          );
           ui.editor.state = readState(this);
           const sw = getWidget(this, 'strength');
           if (typeof sw?.value === 'number') ui.strength.value = sw.value;

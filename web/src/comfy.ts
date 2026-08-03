@@ -42,6 +42,8 @@ export interface NodeLike {
   graph?: unknown;
   setDirtyCanvas?: (fg: boolean, bg?: boolean) => void;
   onRemoved?: () => void;
+  /** Called when a saved workflow applies its stored values to the node. */
+  onConfigure?: (info: any) => any;
   onMouseDown?: (...args: any[]) => any;
   onMouseMove?: (...args: any[]) => any;
   onMouseUp?: (...args: any[]) => any;

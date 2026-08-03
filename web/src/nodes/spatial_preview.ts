@@ -20,8 +20,9 @@ import { chainHandler, type NodeLike } from '../comfy.ts';
 import { Preview } from '../canvas/preview.ts';
 import { BADGE, PW } from '../theme.ts';
 import { isComparing, onCompareChange } from '../widgets/compare.ts';
-import { hit, sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
-import { fitPanel, widgetHeight } from '../widgets/layout.ts';
+import { headerChip, hit, sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
+import { resetNode } from '../widgets/reset.ts';
+import { ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
 import { onRunComplete } from '../widgets/run_events.ts';
 
 const M = PW.metrics;
@@ -72,8 +73,8 @@ export function attachSpatialPreview(nodeType: any, opts: SpatialPreviewOptions)
     };
     handles.set(this, { preview, previewRect, extraTop });
 
-    const panel = (opts.extra?.(this) ?? 0) + HEADER_H + 6 + opts.height + M.gapSection + M.padding;
-    fitPanel(this, panel, opts.minWidth);
+    const panelHeight = () => (opts.extra?.(this) ?? 0) + HEADER_H + 6 + opts.height + M.gapSection + M.padding;
+    fitPanel(this, panelHeight(), opts.minWidth);
 
     const refresh = () => {
       void preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
@@ -92,17 +93,28 @@ export function attachSpatialPreview(nodeType: any, opts: SpatialPreviewOptions)
 
     chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
       if ((this as any).flags?.collapsed) return;
+      // A workflow saved before this panel existed restores a size that is too
+      // short, and it is applied after onConfigure — so enforce it here.
+      if (ensureHeight(this, panelHeight(), opts.minWidth)) this.setDirtyCanvas?.(true, true);
       const x = M.padding;
       const w = this.size[0] - M.padding * 2;
       opts.drawExtra?.(ctx, this, extraTop(this), w);
       const pr = previewRect(this);
-      sectionHeader(ctx, opts.label ?? 'Result', { x, y: pr.y - HEADER_H - 6, w, h: HEADER_H }, BADGE.render);
+      const hr = { x, y: pr.y - HEADER_H - 6, w, h: HEADER_H };
+      sectionHeader(ctx, opts.label ?? 'Result', hr, BADGE.render);
+      headerChip(ctx, hr, 'reset', BADGE.render.label);
       preview.comparing = isComparing();
       preview.draw(ctx, pr);
     });
 
     chainHandler(this, 'onMouseDown', function (this: NodeLike, e: any, pos: [number, number]) {
       const pr = previewRect(this);
+      const hr = { x: M.padding, y: pr.y - HEADER_H - 6, w: this.size[0] - M.padding * 2, h: HEADER_H };
+      const ctx2 = (globalThis as any).app?.canvas?.ctx ?? null;
+      if (hit(headerChip(ctx2, hr, 'reset', BADGE.render.label), pos[0], pos[1], 3)) {
+        resetNode(this);
+        return true;
+      }
       if (!hit(pr, pos[0], pos[1])) return false;
       preview.onPointerDown(pos[0], pos[1], pr, !!e?.shiftKey, e?.detail === 2);
       this.setDirtyCanvas?.(true, true);

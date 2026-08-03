@@ -19,9 +19,9 @@ import { buildSampleFn } from '../core/ops.ts';
 import { HSL_BANDS } from '../core/look_ops.ts';
 import { isComparing, onCompareChange } from '../widgets/compare.ts';
 import { onRunComplete } from '../widgets/run_events.ts';
-import { addResetMenu } from '../widgets/reset.ts';
-import { fillPanel, hit, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
-import { fitPanel, widgetHeight } from '../widgets/layout.ts';
+import { addResetMenu, resetNode } from '../widgets/reset.ts';
+import { fillPanel, headerChip, hit, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
+import { ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
 import { Segmented } from '../widgets/segmented.ts';
 
 const M = PW.metrics;
@@ -389,6 +389,16 @@ export function registerLook(): void {
           this.setDirtyCanvas?.(true, true);
         })();
 
+        // A saved workflow applies its stored size after creation, so re-fit
+        // or a node saved before the preview existed comes back clipped.
+        const priorConfigure = this.onConfigure;
+        this.onConfigure = function (this: NodeLike, info: any) {
+          const res = priorConfigure?.call(this, info);
+          fitPanel(this, panelHeight(this, ui), 420);
+          refreshPreview(this);
+          return res;
+        };
+
         const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
         // PW Look returns no `ui` data, so `onExecuted` never fires for it and
         // the prompt-level events are the only signal that a proxy now exists.
@@ -410,9 +420,11 @@ export function registerLook(): void {
 
         chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
           if ((this as any).flags?.collapsed) return;
+          if (ensureHeight(this, panelHeight(this, ui), 420)) this.setDirtyCanvas?.(true, true);
           const L = layout(this, ui);
 
           sectionHeader(ctx, 'Preview', L.previewHeader, BADGE.lut);
+          headerChip(ctx, L.previewHeader, 'reset', BADGE.lut.label);
           ui.preview.comparing = isComparing();
           ui.preview.draw(ctx, L.preview);
 
@@ -430,6 +442,18 @@ export function registerLook(): void {
         chainHandler(this, 'onMouseDown', function (this: NodeLike, e: any, pos: [number, number]) {
           const L = layout(this, ui);
           const [x, y] = pos;
+
+          const lctx = (globalThis as any).app?.canvas?.ctx ?? null;
+          if (hit(headerChip(lctx, L.previewHeader, 'reset', BADGE.lut.label), x, y, 3)) {
+            resetNode(this, {
+              after: () => {
+                const hsl = getWidget(this, 'hsl');
+                if (hsl) hsl.value = '{}';
+                refreshPreview(this);
+              },
+            });
+            return true;
+          }
 
           if (hit(L.preview, x, y)) {
             ui.preview.onPointerDown(x, y, L.preview, !!e?.shiftKey, e?.detail === 2);

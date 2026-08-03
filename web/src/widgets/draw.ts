@@ -104,6 +104,35 @@ export function sectionHeader(ctx: Ctx, label: string, r: Rect, badge?: { label:
   text(ctx, badge.label, bx + w / 2, r.y + r.h / 2, { colour: badge.text, align: 'center' });
 }
 
+/**
+ * A clickable chip on the right of a section header, to the left of its badge.
+ *
+ * Reset lives here as well as in the right-click menu because the menu is not
+ * ours: on a loaded-up install it sits eighth in a list of entries from other
+ * packs, which is indistinguishable from not existing. "Is this node doing
+ * anything, and how do I stop it" deserves to be visible on the node.
+ *
+ * Pure geometry when `ctx` is null, so hit testing and drawing cannot drift.
+ */
+export function headerChip(
+  ctx: Ctx | null,
+  r: Rect,
+  label: string,
+  badgeLabel?: string,
+): Rect {
+  // Measuring needs a context; fall back to an estimate for hit tests made
+  // before the first paint.
+  const measure = (s: string) => (ctx ? ((ctx.font = PW.font.body), ctx.measureText(s).width) : s.length * 6.2);
+  const badgeW = badgeLabel ? measure(badgeLabel) + 12 + 6 : 0;
+  const w = measure(label) + 14;
+  const rect = { x: r.x + r.w - badgeW - w, y: r.y + (r.h - 16) / 2, w, h: 16 };
+  if (ctx) {
+    fillPanel(ctx, rect, PW.color.chip, PW.metrics.radiusControl, PW.color.borderSoft);
+    text(ctx, label, rect.x + rect.w / 2, r.y + r.h / 2, { colour: PW.color.textMute, align: 'center' });
+  }
+  return rect;
+}
+
 /** Format a number for a readout: fixed width so digits do not jitter mid-drag. */
 export function formatValue(v: number, decimals = 2): string {
   const s = v.toFixed(decimals);

@@ -281,6 +281,17 @@ function sectionHeader(ctx, label, r, badge) {
   fillPanel(ctx, { x: bx, y: r.y + (r.h - 16) / 2, w, h: 16 }, badge.fill, PW.metrics.radiusControl);
   text(ctx, badge.label, bx + w / 2, r.y + r.h / 2, { colour: badge.text, align: "center" });
 }
+function headerChip(ctx, r, label, badgeLabel) {
+  const measure = (s) => ctx ? (ctx.font = PW.font.body, ctx.measureText(s).width) : s.length * 6.2;
+  const badgeW = badgeLabel ? measure(badgeLabel) + 12 + 6 : 0;
+  const w = measure(label) + 14;
+  const rect = { x: r.x + r.w - badgeW - w, y: r.y + (r.h - 16) / 2, w, h: 16 };
+  if (ctx) {
+    fillPanel(ctx, rect, PW.color.chip, PW.metrics.radiusControl, PW.color.borderSoft);
+    text(ctx, label, rect.x + rect.w / 2, r.y + r.h / 2, { colour: PW.color.textMute, align: "center" });
+  }
+  return rect;
+}
 function formatValue(v, decimals = 2) {
   const s = v.toFixed(decimals);
   return s === "-0.00" || s === "-0.0" || s === "-0" ? s.slice(1) : s;
@@ -1830,8 +1841,15 @@ function fitPanel(node, panelHeight2, minWidth) {
   node.size[0] = Math.max(node.size[0], minWidth);
   node.size[1] = Math.max(node.size[1], widgetHeight(node) + panelHeight2);
 }
+function ensureHeight(node, panelHeight2, minWidth) {
+  const needed = widgetHeight(node) + panelHeight2;
+  const grew = node.size[1] < needed - 0.5 || node.size[0] < minWidth - 0.5;
+  if (grew) fitPanel(node, panelHeight2, minWidth);
+  return grew;
+}
 
 // src/nodes/curves.ts
+var ctx0 = () => globalThis.app?.canvas?.ctx ?? null;
 var M = PW.metrics;
 var HEADER_H = 18;
 var TABS_H = M.controlHeight;
@@ -1971,8 +1989,10 @@ function registerCurves() {
         };
         chainHandler(this, "onDrawForeground", function(ctx) {
           if (this.flags?.collapsed) return;
+          if (ensureHeight(this, HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding, 360)) this.setDirtyCanvas?.(true, true);
           const L = ui.layout(this);
           sectionHeader(ctx, "Curves", L.header, BADGE.lut);
+          headerChip(ctx, L.header, "reset", BADGE.lut.label);
           ui.preview.comparing = isComparing();
           ui.preview.draw(ctx, L.preview);
           ui.tabs.draw(ctx, L.tabs);
@@ -1984,6 +2004,16 @@ function registerCurves() {
           const [x, y] = pos;
           const now = e?.timeStamp ?? 0;
           const shift = !!e?.shiftKey;
+          if (hit(headerChip(ctx0(), L.header, "reset", BADGE.lut.label), x, y, 3)) {
+            resetNode(this, {
+              after: () => {
+                ui.editor.resetAll();
+                ui.strength.value = 1;
+                ui.rebake(this);
+              }
+            });
+            return true;
+          }
           const tab = ui.tabs.onPointerDown(x, y, L.tabs);
           if (tab) {
             ui.editor.channel = tab;
@@ -2066,6 +2096,11 @@ function registerCurves() {
         const r = onConfigure?.apply(this, arguments);
         const ui = uis.get(this);
         if (ui) {
+          fitPanel(
+            this,
+            HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding,
+            360
+          );
           ui.editor.state = readState(this);
           const sw = getWidget(this, "strength");
           if (typeof sw?.value === "number") ui.strength.value = sw.value;
@@ -2104,8 +2139,8 @@ function attachSpatialPreview(nodeType, opts) {
       return { x, y, w, h: opts.height };
     };
     handles.set(this, { preview, previewRect, extraTop });
-    const panel = (opts.extra?.(this) ?? 0) + HEADER_H2 + 6 + opts.height + M2.gapSection + M2.padding;
-    fitPanel(this, panel, opts.minWidth);
+    const panelHeight2 = () => (opts.extra?.(this) ?? 0) + HEADER_H2 + 6 + opts.height + M2.gapSection + M2.padding;
+    fitPanel(this, panelHeight2(), opts.minWidth);
     const refresh = () => {
       void preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
       void preview.loadOutput(this.id, () => this.setDirtyCanvas?.(true, true));
@@ -2121,16 +2156,25 @@ function attachSpatialPreview(nodeType, opts) {
     };
     chainHandler(this, "onDrawForeground", function(ctx) {
       if (this.flags?.collapsed) return;
+      if (ensureHeight(this, panelHeight2(), opts.minWidth)) this.setDirtyCanvas?.(true, true);
       const x = M2.padding;
       const w = this.size[0] - M2.padding * 2;
       opts.drawExtra?.(ctx, this, extraTop(this), w);
       const pr = previewRect(this);
-      sectionHeader(ctx, opts.label ?? "Result", { x, y: pr.y - HEADER_H2 - 6, w, h: HEADER_H2 }, BADGE.render);
+      const hr = { x, y: pr.y - HEADER_H2 - 6, w, h: HEADER_H2 };
+      sectionHeader(ctx, opts.label ?? "Result", hr, BADGE.render);
+      headerChip(ctx, hr, "reset", BADGE.render.label);
       preview.comparing = isComparing();
       preview.draw(ctx, pr);
     });
     chainHandler(this, "onMouseDown", function(e, pos) {
       const pr = previewRect(this);
+      const hr = { x: M2.padding, y: pr.y - HEADER_H2 - 6, w: this.size[0] - M2.padding * 2, h: HEADER_H2 };
+      const ctx2 = globalThis.app?.canvas?.ctx ?? null;
+      if (hit(headerChip(ctx2, hr, "reset", BADGE.render.label), pos[0], pos[1], 3)) {
+        resetNode(this);
+        return true;
+      }
       if (!hit(pr, pos[0], pos[1])) return false;
       preview.onPointerDown(pos[0], pos[1], pr, !!e?.shiftKey, e?.detail === 2);
       this.setDirtyCanvas?.(true, true);
@@ -2566,6 +2610,13 @@ function registerLook() {
           refresh();
           this.setDirtyCanvas?.(true, true);
         })();
+        const priorConfigure = this.onConfigure;
+        this.onConfigure = function(info) {
+          const res = priorConfigure?.call(this, info);
+          fitPanel(this, panelHeight(this, ui), 420);
+          refreshPreview(this);
+          return res;
+        };
         const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
         const stopRun = onRunComplete(refresh);
         const priorRemoved = this.onRemoved;
@@ -2581,8 +2632,10 @@ function registerLook() {
         });
         chainHandler(this, "onDrawForeground", function(ctx) {
           if (this.flags?.collapsed) return;
+          if (ensureHeight(this, panelHeight(this, ui), 420)) this.setDirtyCanvas?.(true, true);
           const L = layout(this, ui);
           sectionHeader(ctx, "Preview", L.previewHeader, BADGE.lut);
+          headerChip(ctx, L.previewHeader, "reset", BADGE.lut.label);
           ui.preview.comparing = isComparing();
           ui.preview.draw(ctx, L.preview);
           sectionHeader(ctx, "Presets, on your image", L.presetHeader, BADGE.lut);
@@ -2597,6 +2650,17 @@ function registerLook() {
         chainHandler(this, "onMouseDown", function(e, pos) {
           const L = layout(this, ui);
           const [x, y] = pos;
+          const lctx = globalThis.app?.canvas?.ctx ?? null;
+          if (hit(headerChip(lctx, L.previewHeader, "reset", BADGE.lut.label), x, y, 3)) {
+            resetNode(this, {
+              after: () => {
+                const hsl = getWidget(this, "hsl");
+                if (hsl) hsl.value = "{}";
+                refreshPreview(this);
+              }
+            });
+            return true;
+          }
           if (hit(L.preview, x, y)) {
             ui.preview.onPointerDown(x, y, L.preview, !!e?.shiftKey, e?.detail === 2);
             this.setDirtyCanvas?.(true, true);
