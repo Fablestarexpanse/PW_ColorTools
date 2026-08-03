@@ -5,9 +5,9 @@ rather than broadcast colourists. From **Promptwaffle / BotWaffle Studio**.
 
 ![Before and after](docs/images/before_after.png)
 
-> **Status: in development.** `PW Look`, `PW Match Source`, `PW Curves`,
-> `PW Grain` and `PW Palette` are built and tested. `PW Look I/O`, `PW Optics`
-> and `PW Scopes` are the target shape, not what ships today.
+> **Status: feature complete for v1.** All eight nodes are built and tested:
+> PW Look, PW Curves, PW Grain, PW Optics, PW Match Source, PW Palette,
+> PW Scopes and PW Look I/O.
 
 ---
 
@@ -157,6 +157,83 @@ Matching happens in OKLab by default; linear and sRGB are available. A soft mask
 weights rather than thresholds, so a feathered inpaint contributes
 proportionally instead of falling off a cliff at 0.5.
 
+### PW Optics
+
+<img src="docs/images/pw_optics.png" alt="PW Optics" width="320">
+
+Halation, vignette and chromatic aberration. Render-only, all of it — these read
+pixel neighbourhoods, so none of it can be baked into a LUT, and the node says
+so in the LOOK it emits.
+
+**Halation** is the default and the reason to reach for this node. It is the
+red-orange bleed around a bright window in a film frame, caused by light passing
+through the emulsion, reflecting off the backing and re-exposing the
+red-sensitive layer from underneath. That is why it is red, why it only appears
+around highlights, and why it is soft. A neutral version of the same effect is
+just bloom, which PW Look's glow already covers.
+
+The **vignette** is applied as an exposure change in linear light, not as a
+multiply in the sRGB encoding. A multiply crushes shadow detail and shifts
+saturation, which is why so many vignettes look like a dirty filter rather than
+like falloff. `roundness` moves it from an ellipse fitted to the frame toward a
+rectangle, which suits wide crops.
+
+**Chromatic aberration** scales red and blue oppositely about the centre, so
+fringing grows toward the edges the way a real lens does. A uniform shift would
+put fringing in the middle of the frame, where a lens has none.
+
+Order is fixed: halation, then aberration, then vignette. Emulsion, then glass,
+then falloff. Vignetting first would let its darkened corners bleed back out
+through the halation pass.
+
+### PW Scopes
+
+<img src="docs/images/pw_scopes.png" alt="PW Scopes" width="300">
+
+Histogram, waveform and RGB parade, rendered from the **full-resolution** image
+and passed through untouched, so the node can sit anywhere in a chain.
+
+![Scopes output](docs/images/scopes_output.png)
+
+The parade is the fastest way to see a colour cast — on the sunset above, red
+sits high and blue sits low at a glance. The waveform shows *where* in the frame
+the tones are, which is the whole difference between it and a histogram: the
+sun's bulge and the dark foreground ridge are both visible in position.
+
+Scopes are rendered server-side rather than in the browser because a scope of a
+downscaled proxy is not a scope of the image — resampling fills in exactly the
+gaps that make posterisation and clipping visible. It also means the scope is an
+IMAGE you can wire into a Save Image node and keep next to the frame it measured.
+
+### PW Look I/O
+
+<img src="docs/images/pw_lookio.png" alt="PW Look I/O" width="300">
+
+Saves a LOOK to `output/looks` as a `.look`, loads one back, and bakes it to an
+Adobe `.cube`.
+
+The part that matters is what it tells you. A `.cube` can only carry per-pixel
+operations, so grain, glow, halation and reference matching cannot be in it.
+Rather than writing a file that quietly does less than your graph, the node
+reports exactly what went in and what was left out:
+
+```
+source    input
+ops       3
+  - halation         render only
+  - chromatic_aberration render only
+  - vignette         render only
+exported  .../output/looks/my grade.cube  (33³, 0 ops)
+WARNING   the .cube does not include: halation, chromatic_aberration, vignette
+          those are spatial or image-dependent and cannot be a LUT
+```
+
+That works because every op in a LOOK records whether it is LUT-safe as it is
+created, rather than the exporter guessing after the fact.
+
+`.look` files are canonical JSON, so an unchanged look writes a byte-identical
+file and diffs stay readable.
+
 ---
 
 ## How it connects
@@ -175,16 +252,21 @@ flowchart LR
     direction LR
     MS[PW Match source]:::pw -- IMAGE --> LK[PW Look]:::pw
     LK -- IMAGE --> CU[PW Curves]:::pw
-    CU -- IMAGE --> GR[PW Grain]:::pw
+    CU -- IMAGE --> OP[PW Optics]:::pw
+    OP -- IMAGE --> GR[PW Grain]:::pw
     MS -- LOOK --> LK
     LK -- LOOK --> CU
-    CU -- LOOK --> GR
+    CU -- LOOK --> OP
+    OP -- LOOK --> GR
     LK -. IMAGE .-> PA[PW Palette]:::pw
     PA -. PALETTE .-> LK
   end
 
-  GR -- IMAGE --> SAVE[Save image]
-  GR -- LOOK --> LOOKOUT[(LOOK<br/>full grade stack)]
+  GR -- IMAGE --> SC[PW Scopes]:::pw
+  SC -- IMAGE --> SAVE[Save image]
+  SC -- scope IMAGE --> SCOUT[(Histogram<br/>waveform, parade)]
+  GR -- LOOK --> LIO[PW Look I/O]:::pw
+  LIO -- .look + .cube --> DISK[(output/looks)]
   PA -- PALETTE --> PALOUT[(PALETTE<br/>+ hex + swatch strip)]
 
   classDef pw fill:#272433,stroke:#7F77DD,stroke-width:1px,color:#F0EEF8;
@@ -199,8 +281,12 @@ in.
 tone response on top of it. Both bake to lattices, so stacking them costs one
 extra resample and nothing else.
 
-`PW Grain` goes last. It is a spatial effect, so it cannot be baked into the
-LUT, and anything applied after it would filter the grain you just added.
+`PW Optics` then `PW Grain` go last, in that order: halation is light spreading
+through the emulsion, grain is the emulsion itself, and anything applied after
+grain would filter the grain you just added. Neither can be baked into a LUT.
+
+`PW Scopes` passes the image through untouched, so it can sit anywhere; at the
+end is simply where you usually want to read the result.
 
 The dashed `PW Palette` loop is optional but worth knowing: extract a palette
 from the graded frame, feed it back into `PW Look`'s gradient map, and the ramp

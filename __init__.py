@@ -31,15 +31,21 @@ if _COMFY_AVAILABLE:
 
     class PWColorExtension(ComfyExtension):
         async def get_node_list(self) -> list[type[io.ComfyNode]]:
-            from .pw_color.nodes import curves, grain, look, match_source, palette, parity
+            from .pw_color.nodes import (
+                curves,
+                grain,
+                look,
+                look_io,
+                match_source,
+                optics,
+                palette,
+                parity,
+                scopes,
+            )
 
             nodes: list[type[io.ComfyNode]] = []
-            nodes.extend(look.NODES)
-            nodes.extend(curves.NODES)
-            nodes.extend(grain.NODES)
-            nodes.extend(match_source.NODES)
-            nodes.extend(palette.NODES)
-            nodes.extend(parity.NODES)
+            for module in (look, curves, grain, optics, match_source, palette, scopes, look_io, parity):
+                nodes.extend(module.NODES)
             return nodes
 
         async def on_load(self) -> None:

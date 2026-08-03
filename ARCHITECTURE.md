@@ -209,6 +209,37 @@ downstream node cannot tell a guess from a measurement.
 from a text field is for the result not to be a path at all; four traversal
 shapes are covered by tests.
 
+## LUT export honesty
+
+A `.cube` can only carry per-pixel operations. Grain, glow, halation, vignette,
+chromatic aberration and reference matching cannot be in one.
+
+Rather than have the exporter guess after the fact, **every op records
+`lut_safe` when it is created**, at the node that knows. `PW Look I/O` then
+reports exactly what a `.cube` included and what it dropped, instead of writing
+a file that quietly does less than the user's graph.
+
+`Look.lut_exportable` ignores disabled ops, so turning grain off genuinely makes
+a look exportable again. There is a test for that, because the alternative — a
+warning that never goes away — trains people to ignore warnings.
+
+## Scopes
+
+Rendered server-side into an IMAGE, not drawn in the browser. Two reasons: a
+scope of the downscaled preview proxy is not a scope of the image (resampling
+fills in exactly the gaps that make posterisation and clipping visible), and a
+scope that is an IMAGE can be wired into a Save Image node and kept alongside
+the frame it measured.
+
+The waveform maps **destination columns to source columns** when the scope is
+wider than the image. The obvious direction — source to destination — lights
+only every nth column and leaves the trace combed with vertical gaps. Caught by
+a test that asserts every output column carries some trace.
+
+Density is normalised per column and raised to ~0.45; histograms use ~0.4.
+Linear makes a normal photograph one spike and a flat line, log makes three
+stray pixels look like a tonal region.
+
 ## ComfyUI specifics
 
 Verified against **ComfyUI 0.29.2 / comfyui-frontend-package 1.47.11**.
