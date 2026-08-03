@@ -243,25 +243,27 @@ export class Preview {
   /** True while the compare key is held. */
   comparing = false;
   private loading = false;
-  private failedFetch = false;
 
-  /** Pull this node's cached input from the preview route. */
+  /**
+   * Pull this node's cached input from the preview route.
+   *
+   * Always retryable. An earlier version latched a `failedFetch` flag on any
+   * error, which meant one transient failure disabled the preview for the life
+   * of the node — and since the first attempt happens before the graph has ever
+   * run, "no proxy yet" is the normal case rather than an error.
+   */
   async load(nodeId: string | number, onReady: () => void): Promise<void> {
-    if (this.loading || this.failedFetch) return;
+    if (this.loading) return;
     this.loading = true;
     try {
       const res = await fetch(`/pw_color/input/${nodeId}`);
-      if (!res.ok) {
-        // 404 simply means the graph has not run yet.
-        this.loading = false;
-        return;
-      }
+      if (!res.ok) return; // 404: the graph has not run yet
       const bmp = await createImageBitmap(await res.blob());
       this.source?.dispose();
       this.source = new TexSource(bmp);
       onReady();
-    } catch {
-      this.failedFetch = true;
+    } catch (err) {
+      console.debug('[PW Color] preview fetch failed, will retry after the next run', err);
     } finally {
       this.loading = false;
     }

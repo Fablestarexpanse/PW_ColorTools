@@ -922,23 +922,26 @@ var Preview = class {
   /** True while the compare key is held. */
   comparing = false;
   loading = false;
-  failedFetch = false;
-  /** Pull this node's cached input from the preview route. */
+  /**
+   * Pull this node's cached input from the preview route.
+   *
+   * Always retryable. An earlier version latched a `failedFetch` flag on any
+   * error, which meant one transient failure disabled the preview for the life
+   * of the node — and since the first attempt happens before the graph has ever
+   * run, "no proxy yet" is the normal case rather than an error.
+   */
   async load(nodeId, onReady) {
-    if (this.loading || this.failedFetch) return;
+    if (this.loading) return;
     this.loading = true;
     try {
       const res = await fetch(`/pw_color/input/${nodeId}`);
-      if (!res.ok) {
-        this.loading = false;
-        return;
-      }
+      if (!res.ok) return;
       const bmp = await createImageBitmap(await res.blob());
       this.source?.dispose();
       this.source = new TexSource(bmp);
       onReady();
-    } catch {
-      this.failedFetch = true;
+    } catch (err) {
+      console.debug("[PW Color] preview fetch failed, will retry after the next run", err);
     } finally {
       this.loading = false;
     }
@@ -1321,6 +1324,74 @@ function onCompareChange(fn) {
   return () => listeners.delete(fn);
 }
 
+// src/widgets/run_events.ts
+var listeners2 = /* @__PURE__ */ new Set();
+var installed2 = false;
+var pending = null;
+function fire() {
+  if (pending) clearTimeout(pending);
+  pending = setTimeout(() => {
+    pending = null;
+    for (const fn of listeners2) {
+      try {
+        fn();
+      } catch (err) {
+        console.warn("[PW Color] run listener failed", err);
+      }
+    }
+  }, 80);
+}
+function install2() {
+  if (installed2) return;
+  installed2 = true;
+  for (const name of ["execution_success", "execution_error", "executed"]) {
+    api.addEventListener(name, fire);
+  }
+}
+function onRunComplete(fn) {
+  install2();
+  listeners2.add(fn);
+  return () => listeners2.delete(fn);
+}
+
+// src/widgets/reset.ts
+function defaultFor(node, name) {
+  const defs = node.constructor?.nodeData?.input ?? {};
+  for (const section of ["required", "optional"]) {
+    const entry = defs[section]?.[name];
+    if (!entry) continue;
+    const spec = entry[1];
+    if (spec && typeof spec === "object" && "default" in spec) return spec.default;
+    if (Array.isArray(entry[0]) && entry[0].length) return entry[0][0];
+  }
+  return void 0;
+}
+function resetNode(node, opts = {}) {
+  const keep = new Set(opts.keep ?? ["seed", "control_after_generate"]);
+  for (const w of node.widgets ?? []) {
+    if (keep.has(w.name)) continue;
+    const value = defaultFor(node, w.name);
+    if (value === void 0) continue;
+    if (w.value !== value) {
+      w.value = value;
+      w.callback?.(w.value);
+    }
+  }
+  opts.after?.();
+  node.setDirtyCanvas?.(true, true);
+}
+function addResetMenu(nodeType, opts = () => ({})) {
+  const prior = nodeType.prototype.getExtraMenuOptions;
+  nodeType.prototype.getExtraMenuOptions = function(canvas, options) {
+    const result = prior?.apply(this, arguments);
+    options.push(null, {
+      content: "Reset to defaults",
+      callback: () => resetNode(this, opts(this))
+    });
+    return result;
+  };
+}
+
 // src/widgets/numeric_entry.ts
 var active = null;
 function toPage(canvas, node, r) {
@@ -1663,6 +1734,15 @@ function registerCurves() {
     name: "pw.color.curves",
     async beforeRegisterNodeDef(nodeType, nodeData) {
       if (nodeData?.name !== "PW_Curves") return;
+      addResetMenu(nodeType, (node) => ({
+        after: () => {
+          const ui = uis.get(node);
+          if (!ui) return;
+          ui.editor.resetAll();
+          ui.strength.value = 1;
+          ui.rebake(node);
+        }
+      }));
       const onCreated = nodeType.prototype.onNodeCreated;
       nodeType.prototype.onNodeCreated = function() {
         const r = onCreated?.apply(this, arguments);
@@ -1679,11 +1759,17 @@ function registerCurves() {
           HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding,
           360
         );
-        void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
-        const unsubscribe = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const refresh = () => {
+          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+          void loadHistogram(this, ui);
+        };
+        refresh();
+        const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const stopRun = onRunComplete(refresh);
         const priorRemoved = this.onRemoved;
         this.onRemoved = function() {
-          unsubscribe();
+          stopCompare();
+          stopRun();
           priorRemoved?.call(this);
         };
         chainHandler(this, "onDrawForeground", function(ctx) {
@@ -2160,6 +2246,13 @@ function registerLook() {
     name: "pw.color.look",
     async beforeRegisterNodeDef(nodeType, nodeData) {
       if (nodeData?.name !== "PW_Look") return;
+      addResetMenu(nodeType, (node) => ({
+        after: () => {
+          const hsl = getWidget(node, "hsl");
+          if (hsl) hsl.value = "{}";
+          refreshPreview(node);
+        }
+      }));
       const onCreated = nodeType.prototype.onNodeCreated;
       nodeType.prototype.onNodeCreated = function() {
         const r = onCreated?.apply(this, arguments);
@@ -2179,17 +2272,22 @@ function registerLook() {
         uis2.set(this, ui);
         fitPanel(this, panelHeight(this, ui), 420);
         refreshPreview(this);
+        const refresh = () => {
+          void loadSource(this, ui);
+          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+        };
         void (async () => {
           ui.presets = await loadPresets();
           fitPanel(this, panelHeight(this, ui), 420);
-          await loadSource(this, ui);
-          await ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+          refresh();
           this.setDirtyCanvas?.(true, true);
         })();
-        const unsubscribe = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const stopRun = onRunComplete(refresh);
         const priorRemoved = this.onRemoved;
         this.onRemoved = function() {
-          unsubscribe();
+          stopCompare();
+          stopRun();
           priorRemoved?.call(this);
         };
         chainHandler(this, "onResize", function() {
@@ -2255,16 +2353,6 @@ function registerLook() {
           return false;
         });
         return r;
-      };
-      const onExecuted = nodeType.prototype.onExecuted;
-      nodeType.prototype.onExecuted = function() {
-        const res = onExecuted?.apply(this, arguments);
-        const ui = uis2.get(this);
-        if (ui) {
-          void loadSource(this, ui);
-          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
-        }
-        return res;
       };
       const onWidgetChanged = nodeType.prototype.onWidgetChanged;
       nodeType.prototype.onWidgetChanged = function() {
@@ -2620,11 +2708,25 @@ function registerPortColours() {
     for (const [type, colour] of Object.entries(PW.port)) map[type] = colour;
   }
 }
+var PW_NODES = [
+  "PW_Look",
+  "PW_Curves",
+  "PW_Grain",
+  "PW_Optics",
+  "PW_MatchSource",
+  "PW_Palette",
+  "PW_Scopes",
+  "PW_LookIO"
+];
 app.registerExtension({
   name: "pw.color",
   async setup() {
     warnIfUnsupported();
     registerPortColours();
+  },
+  async beforeRegisterNodeDef(nodeType, nodeData) {
+    if (!PW_NODES.includes(nodeData?.name)) return;
+    addResetMenu(nodeType);
   }
 });
 registerCurves();

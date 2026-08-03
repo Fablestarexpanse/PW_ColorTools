@@ -170,12 +170,9 @@ class PW_Look(io.ComfyNode):
 
     @classmethod
     def execute(cls, image: torch.Tensor, **kw) -> io.NodeOutput:
-        try:
-            from ..preview_server import store
+        from ..preview_server import store_for_node
 
-            store(str(cls.hidden.unique_id), image)
-        except Exception:  # pragma: no cover
-            pass
+        store_for_node(cls, image)
 
         preset = kw.get("preset", "none")
         p = dict(_presets().get(preset, {}).get("params", {})) if preset and preset != "none" else {}

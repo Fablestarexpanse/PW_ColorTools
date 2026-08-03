@@ -16,6 +16,8 @@ import { Preview } from '../canvas/preview.ts';
 import { Lattice, DEFAULT_SIZE } from '../core/lattice.ts';
 import { buildSampleFn } from '../core/ops.ts';
 import { isComparing, onCompareChange } from '../widgets/compare.ts';
+import { onRunComplete } from '../widgets/run_events.ts';
+import { addResetMenu } from '../widgets/reset.ts';
 import { openNumericEntry } from '../widgets/numeric_entry.ts';
 import { Segmented } from '../widgets/segmented.ts';
 import { Slider } from '../widgets/slider.ts';
@@ -163,6 +165,18 @@ export function registerCurves(): void {
     async beforeRegisterNodeDef(nodeType: any, nodeData: any) {
       if (nodeData?.name !== 'PW_Curves') return;
 
+      // The curve editor holds state the widgets do not, so a plain widget
+      // reset would leave the curve drawn but the node claiming defaults.
+      addResetMenu(nodeType, (node) => ({
+        after: () => {
+          const ui = uis.get(node);
+          if (!ui) return;
+          ui.editor.resetAll();
+          ui.strength.value = 1;
+          ui.rebake(node);
+        },
+      }));
+
       const onCreated = nodeType.prototype.onNodeCreated;
       nodeType.prototype.onNodeCreated = function (this: NodeLike) {
         const r = onCreated?.apply(this, arguments as any);
@@ -188,13 +202,22 @@ export function registerCurves(): void {
           360,
         );
 
-        void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+        const refresh = () => {
+          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+          void loadHistogram(this, ui);
+        };
+        refresh();
+
         // A global key listener, so holding the compare key redraws every
         // PW node at once rather than only the one under the cursor.
-        const unsubscribe = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        // PW Curves returns no `ui` data, so `onExecuted` never fires for it.
+        // The prompt-level events are what tell us a proxy is now cached.
+        const stopRun = onRunComplete(refresh);
         const priorRemoved = this.onRemoved;
         this.onRemoved = function (this: NodeLike) {
-          unsubscribe();
+          stopCompare();
+          stopRun();
           priorRemoved?.call(this);
         };
 

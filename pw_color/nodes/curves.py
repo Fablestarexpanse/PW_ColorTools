@@ -149,14 +149,10 @@ class PW_Curves(io.ComfyNode):
         look_in: dict | None = None,
     ) -> io.NodeOutput:
         # Cache the input so the editor can draw its histogram and preview
-        # without waiting for a second execution. Best effort — never let a
-        # preview concern break a render.
-        try:
-            from ..preview_server import store
+        # without waiting for a second execution.
+        from ..preview_server import store_for_node
 
-            store(str(cls.hidden.unique_id), image)
-        except Exception:  # pragma: no cover
-            pass
+        store_for_node(cls, image)
 
         try:
             raw = json.loads(curves) if curves.strip() else {}

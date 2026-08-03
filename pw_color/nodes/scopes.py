@@ -46,12 +46,9 @@ class PW_Scopes(io.ComfyNode):
 
     @classmethod
     def execute(cls, image: torch.Tensor, mode: str = "all", width: int = 512, height: int = 256) -> io.NodeOutput:
-        try:
-            from ..preview_server import store
+        from ..preview_server import store_for_node
 
-            store(str(cls.hidden.unique_id), image)
-        except Exception:  # pragma: no cover
-            pass
+        store_for_node(cls, image)
         return io.NodeOutput(image, render_scope(image, mode, width, height))
 
 

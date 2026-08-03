@@ -96,6 +96,38 @@ def store(node_id: str, image: torch.Tensor) -> None:
             _bytes -= len(dropped["proxy"])
 
 
+def store_for_node(node_cls, image: torch.Tensor) -> bool:
+    """Cache ``image`` under the executing node's id. Never raises.
+
+    Every node did this inline behind a bare ``except Exception: pass``, which
+    is how a broken cache went unnoticed for the whole project: the preview
+    stayed empty and nothing anywhere said why. One helper, one place to get it
+    right, and a warning when it does not work.
+
+    ``cls.hidden`` is populated on a per-execution clone of the node class
+    (``PREPARE_CLASS_CLONE``), so it is ``None`` outside a real run — that case
+    is silent, because it is normal in tests.
+    """
+    hidden = getattr(node_cls, "hidden", None)
+    if hidden is None:
+        _log.debug("PW Color: no hidden data on %s, skipping input cache", getattr(node_cls, "__name__", node_cls))
+        return False
+    node_id = getattr(hidden, "unique_id", None)
+    if node_id is None:
+        _log.warning(
+            "PW Color: %s has no unique_id; the node's preview will stay empty. "
+            "Is io.Hidden.unique_id declared in its schema?",
+            getattr(node_cls, "__name__", node_cls),
+        )
+        return False
+    try:
+        store(str(node_id), image)
+        return True
+    except Exception:
+        _log.warning("PW Color: could not cache the input for node %s", node_id, exc_info=True)
+        return False
+
+
 def get(node_id: str) -> dict | None:
     with _lock:
         entry = _cache.get(str(node_id))

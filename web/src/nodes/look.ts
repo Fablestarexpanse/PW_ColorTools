@@ -18,6 +18,8 @@ import { Lattice, DEFAULT_SIZE } from '../core/lattice.ts';
 import { buildSampleFn } from '../core/ops.ts';
 import { HSL_BANDS } from '../core/look_ops.ts';
 import { isComparing, onCompareChange } from '../widgets/compare.ts';
+import { onRunComplete } from '../widgets/run_events.ts';
+import { addResetMenu } from '../widgets/reset.ts';
 import { fillPanel, hit, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
 import { fitPanel, widgetHeight } from '../widgets/layout.ts';
 import { Segmented } from '../widgets/segmented.ts';
@@ -347,6 +349,16 @@ export function registerLook(): void {
     async beforeRegisterNodeDef(nodeType: any, nodeData: any) {
       if (nodeData?.name !== 'PW_Look') return;
 
+      // `hsl` is a hidden serialisation widget, so its default is an empty
+      // object; resetting it is what actually clears the colour mixer.
+      addResetMenu(nodeType, (node) => ({
+        after: () => {
+          const hsl = getWidget(node, 'hsl');
+          if (hsl) hsl.value = '{}';
+          refreshPreview(node);
+        },
+      }));
+
       const onCreated = nodeType.prototype.onNodeCreated;
       nodeType.prototype.onNodeCreated = function (this: NodeLike) {
         const r = onCreated?.apply(this, arguments as any);
@@ -363,20 +375,28 @@ export function registerLook(): void {
         fitPanel(this, panelHeight(this, ui), 420);
         refreshPreview(this);
 
+        const refresh = () => {
+          void loadSource(this, ui);
+          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+        };
+
         void (async () => {
           ui.presets = await loadPresets();
           // Re-fit: the strip's row count depends on how many presets exist,
           // and they arrive over HTTP after the node has already been sized.
           fitPanel(this, panelHeight(this, ui), 420);
-          await loadSource(this, ui);
-          await ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+          refresh();
           this.setDirtyCanvas?.(true, true);
         })();
 
-        const unsubscribe = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        // PW Look returns no `ui` data, so `onExecuted` never fires for it and
+        // the prompt-level events are the only signal that a proxy now exists.
+        const stopRun = onRunComplete(refresh);
         const priorRemoved = this.onRemoved;
         this.onRemoved = function (this: NodeLike) {
-          unsubscribe();
+          stopCompare();
+          stopRun();
           priorRemoved?.call(this);
         };
 
@@ -453,18 +473,6 @@ export function registerLook(): void {
         });
 
         return r;
-      };
-
-      // Rebuild the preset strip whenever the node's input changes.
-      const onExecuted = nodeType.prototype.onExecuted;
-      nodeType.prototype.onExecuted = function (this: NodeLike) {
-        const res = onExecuted?.apply(this, arguments as any);
-        const ui = uis.get(this);
-        if (ui) {
-          void loadSource(this, ui);
-          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
-        }
-        return res;
       };
 
       // Any widget change reshapes the grade, so the preview must follow.

@@ -8,6 +8,7 @@ import { registerCurves } from './nodes/curves.ts';
 import { registerGrain } from './nodes/grain.ts';
 import { registerLook } from './nodes/look.ts';
 import { registerPalette } from './nodes/palette.ts';
+import { addResetMenu } from './widgets/reset.ts';
 
 /**
  * Port colours for our custom types.
@@ -32,11 +33,30 @@ function registerPortColours(): void {
   }
 }
 
+/** Every node in the pack, so shared behaviour can be attached in one place. */
+const PW_NODES = [
+  'PW_Look',
+  'PW_Curves',
+  'PW_Grain',
+  'PW_Optics',
+  'PW_MatchSource',
+  'PW_Palette',
+  'PW_Scopes',
+  'PW_LookIO',
+];
+
 app.registerExtension({
   name: 'pw.color',
   async setup() {
     warnIfUnsupported();
     registerPortColours();
+  },
+  async beforeRegisterNodeDef(nodeType: any, nodeData: any) {
+    if (!PW_NODES.includes(nodeData?.name)) return;
+    // "Reset to defaults" on every node, so "is this node still doing
+    // anything?" never has to be answered by reading a dozen sliders. Nodes
+    // with their own canvas state add an `after` hook in their own module.
+    addResetMenu(nodeType);
   },
 });
 
