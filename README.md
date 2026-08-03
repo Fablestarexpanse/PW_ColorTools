@@ -28,6 +28,18 @@ and torch, the CPU samplers agree **exactly at 8-bit**, and the shipped shader
 lands **within one code value at 8-bit** (mean 0.03 over 12k pixels) against
 the reference. `.cube` export falls out of the same lattice for free.
 
+**Every control is a slider.** Anything with a range is a native ComfyUI
+slider rather than an arrow-stepper, so a value's position is readable at a
+glance and the nodes match the rest of the app. Seeds and output dimensions
+stay as typed fields, because those are values you enter rather than drag
+toward.
+
+**Every node resets.** A `reset` chip in the panel header, and a
+`Reset to defaults` entry in the right-click menu, put a node back to its
+defaults — including the parts the widgets do not hold, like the curve itself
+and the colour mixer. Seeds are left alone, since resetting one would change
+your grain rather than neutralise a control.
+
 **Preview controls**, on any node that has one:
 
 | | |
@@ -104,16 +116,15 @@ longer `.cube`-exportable. That is stated rather than hidden.
 
 ### PW Curves
 
-<img src="docs/images/pw_curves.png" alt="PW Curves" width="420">
+<img src="docs/images/pw_curves.png" alt="PW Curves" width="400">
 
 Multi-channel curve editor. Luma, R, G and B tabs; the input histogram rendered
 behind the grid; a dashed identity diagonal; a ghost of the pre-edit curve while
 you drag.
 
 Click to add a point, shift-click to remove one, shift-drag for fine adjustment,
-double-click the canvas to reset the channel. The strength slider blends toward
-the identity curve, and its fill runs from the **neutral point** rather than from
-zero, so "unchanged" reads at a glance.
+double-click the canvas to reset the channel. The `strength` slider blends the
+whole curve toward identity.
 
 The `LUT` badge means this section bakes into a lattice and exports to `.cube`.
 Sections that cannot are badged `render only` — we surface the split rather than
@@ -124,7 +135,7 @@ tested monotone and non-null.
 
 ### PW Grain
 
-<img src="docs/images/pw_grain.png" alt="PW Grain" width="340">
+<img src="docs/images/pw_grain.png" alt="PW Grain" width="420">
 
 Film grain with a **tonal response** — strongest in the midtones, weak in the
 shadows, absent in pure black and pure white. Uniform noise across the frame is
@@ -174,7 +185,7 @@ whole frame.
 
 ### PW Match Source
 
-<img src="docs/images/pw_matchsource.png" alt="PW Match source" width="320">
+<img src="docs/images/pw_matchsource.png" alt="PW Match source" width="340">
 
 Fixes the colour drift a VAE encode/decode introduces. On a full-frame img2img
 nobody notices, because the whole frame shifts together. On an inpaint you
@@ -191,7 +202,7 @@ proportionally instead of falling off a cliff at 0.5.
 
 ### PW Optics
 
-<img src="docs/images/pw_optics.png" alt="PW Optics" width="320">
+<img src="docs/images/pw_optics.png" alt="PW Optics" width="400">
 
 Halation, vignette and chromatic aberration. Render-only, all of it — these read
 pixel neighbourhoods, so none of it can be baked into a LUT, and the node says
@@ -220,7 +231,7 @@ through the halation pass.
 
 ### PW Scopes
 
-<img src="docs/images/pw_scopes.png" alt="PW Scopes" width="300">
+<img src="docs/images/pw_scopes.png" alt="PW Scopes" width="340">
 
 Histogram, waveform and RGB parade, rendered from the **full-resolution** image
 and passed through untouched, so the node can sit anywhere in a chain.
@@ -239,7 +250,7 @@ IMAGE you can wire into a Save Image node and keep next to the frame it measured
 
 ### PW Look I/O
 
-<img src="docs/images/pw_lookio.png" alt="PW Look I/O" width="300">
+<img src="docs/images/pw_lookio.png" alt="PW Look I/O" width="340">
 
 Saves a LOOK to `output/looks` as a `.look`, loads one back, and bakes it to an
 Adobe `.cube`.
