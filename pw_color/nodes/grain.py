@@ -152,6 +152,7 @@ class PW_Grain(io.ComfyNode):
                 io.Image.Output(display_name="image"),
                 io.Custom("LOOK").Output(display_name="look"),
             ],
+            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -176,6 +177,10 @@ class PW_Grain(io.ComfyNode):
         dither: float = 1.0,
         look_in: dict | None = None,
     ) -> io.NodeOutput:
+        from ..preview_server import store_for_node, store_output_for_node
+
+        store_for_node(cls, image)
+
         b, h, w = image.shape[0], image.shape[1], image.shape[2]
         tonal = TonalResponse(shadows, midtones, highlights)
 
@@ -224,6 +229,10 @@ class PW_Grain(io.ComfyNode):
             # this to warn that a .cube export will not include it.
             lut_safe=False,
         )
+        # Grain is spatial, so the browser cannot reproduce it. Caching what we
+        # actually produced is the only preview that tells the truth.
+        store_output_for_node(cls, out)
+
         look = Look.from_dict(look_in) if look_in else Look()
         return io.NodeOutput(out, look.appended(op).to_dict())
 

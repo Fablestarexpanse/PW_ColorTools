@@ -256,6 +256,23 @@ function shared(): Renderer {
  */
 export class Preview {
   source: TexSource | null = null;
+  /**
+   * The node's actual rendered output, for spatial nodes.
+   *
+   * Grain, halation and vignette cannot be baked into a lattice and cannot be
+   * reproduced in the browser, so the only honest preview is what the node
+   * really produced. When this is set it is what gets drawn, and holding the
+   * compare key falls back to `source` — the node's input.
+   */
+  output: TexSource | null = null;
+  /**
+   * A native-resolution centre crop of the output.
+   *
+   * Used once zoomed in, because grain size is *absolute*: a downscaled
+   * preview would show 1.4px grain finer than it renders, which is worse than
+   * showing nothing.
+   */
+  crop: TexSource | null = null;
   lattice: Lattice | null = null;
   digest = '';
   /** 0 shows the original across the whole panel; 1 shows the grade. */
@@ -268,6 +285,7 @@ export class Preview {
   panX = 0;
   panY = 0;
   private loading = false;
+  private loadingOutput = false;
   private dragging: 'pan' | 'wipe' | null = null;
   private dragFrom = { x: 0, y: 0, panX: 0, panY: 0 };
 
@@ -296,13 +314,55 @@ export class Preview {
     }
   }
 
+  /**
+   * Fetch the node's rendered output and its 1:1 crop.
+   *
+   * For spatial nodes only — colour nodes reproduce themselves exactly through
+   * the lattice and have no need of this.
+   */
+  async loadOutput(nodeId: string | number, onReady: () => void): Promise<void> {
+    if (this.loadingOutput) return;
+    this.loadingOutput = true;
+    try {
+      const [full, crop] = await Promise.all([
+        fetch(`/pw_color/output/${nodeId}`),
+        fetch(`/pw_color/output_crop/${nodeId}`),
+      ]);
+      if (!full.ok) return; // not run yet
+      const bmp = await createImageBitmap(await full.blob());
+      this.output?.dispose();
+      this.output = new TexSource(bmp);
+      if (crop.ok) {
+        const cbmp = await createImageBitmap(await crop.blob());
+        this.crop?.dispose();
+        this.crop = new TexSource(cbmp);
+      }
+      onReady();
+    } catch (err) {
+      console.debug('[PW Color] output fetch failed, will retry after the next run', err);
+    } finally {
+      this.loadingOutput = false;
+    }
+  }
+
   get hasImage(): boolean {
-    return this.source !== null;
+    return this.source !== null || this.output !== null;
+  }
+
+  /** Zoom past this switches to the native crop, where there is one. */
+  private static readonly CROP_AT = 1.4;
+
+  /** What to draw right now, and whether it is the true-scale crop. */
+  private active(): { tex: TexSource | null; native: boolean } {
+    if (this.comparing && this.source) return { tex: this.source, native: false };
+    if (this.crop && this.zoom >= Preview.CROP_AT) return { tex: this.crop, native: true };
+    return { tex: this.output ?? this.source, native: false };
   }
 
   draw(ctx: Ctx, r: Rect): void {
     fillPanel(ctx, r, PW.color.well, PW.metrics.radiusPanel, PW.color.border);
-    if (!this.source) {
+    const { tex, native } = this.active();
+    if (!tex) {
       text(ctx, 'Run the graph once to preview', r.x + r.w / 2, r.y + r.h / 2, {
         colour: PW.color.textMute,
         align: 'center',
@@ -310,12 +370,16 @@ export class Preview {
       return;
     }
 
-    const { uvScale, uvOffset } = this.view(r);
+    const { uvScale, uvOffset } = this.view(r, tex);
     const wipe = this.comparing ? 0 : this.wipe;
     const w = Math.max(1, Math.round(r.w));
     const h = Math.max(1, Math.round(r.h));
+    // The lattice is only applied when we are showing the node's *input*. A
+    // cached output already has the node's effect in it; running it through
+    // the lattice again would double the grade.
+    const lattice = this.output ? null : this.lattice;
     const out = shared().render(
-      this.source, this.lattice, this.digest, w, h, wipe, uvScale, uvOffset, hexToRgb(PW.color.well),
+      tex, lattice, this.digest, w, h, wipe, uvScale, uvOffset, hexToRgb(PW.color.well),
     );
 
     ctx.save();
@@ -343,11 +407,24 @@ export class Preview {
     }
     if (this.comparing) {
       text(ctx, 'before', r.x + 8, r.y + 12, { colour: PW.color.accent });
+    } else if (native) {
+      // Say so explicitly: at true scale the grain on screen is the grain that
+      // renders, and below this zoom it is not.
+      text(ctx, '1:1 crop', r.x + r.w - 8, r.y + 12, {
+        colour: PW.color.accent,
+        align: 'right',
+        font: PW.font.mono,
+      });
     } else if (this.zoom > 1.01) {
       text(ctx, `${this.zoom.toFixed(1)}x`, r.x + r.w - 8, r.y + 12, {
         colour: PW.color.textMute,
         align: 'right',
         font: PW.font.mono,
+      });
+    } else if (this.crop) {
+      text(ctx, 'zoom for 1:1', r.x + r.w - 8, r.y + 12, {
+        colour: PW.color.textMute,
+        align: 'right',
       });
     }
   }
@@ -359,9 +436,9 @@ export class Preview {
    * crops, and a preview you cannot see all of is not much use for judging a
    * grade on a portrait frame in a wide panel.
    */
-  private view(r: Rect): { uvScale: [number, number]; uvOffset: [number, number] } {
-    const iw = this.source!.width;
-    const ih = this.source!.height;
+  private view(r: Rect, tex: TexSource = this.active().tex!): { uvScale: [number, number]; uvOffset: [number, number] } {
+    const iw = tex.width;
+    const ih = tex.height;
     const fit = Math.min(r.w / iw, r.h / ih);
     const s = fit * this.zoom;
     // How much of the image one panel spans, in uv. Above 1 means letterbox.

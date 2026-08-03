@@ -115,3 +115,106 @@ def test_bad_input_is_ignored_rather_than_raising():
 def test_register_routes_is_safe_outside_a_server():
     """ComfyUI skips the whole extension if comfy_entrypoint raises."""
     assert ps.register_routes() is False
+
+
+# -- output cache, for spatial nodes -----------------------------------------
+
+
+def _reset_output() -> None:
+    with ps._lock:
+        ps._out_cache.clear()
+    ps._out_bytes = 0
+
+
+def test_output_cache_round_trip():
+    _reset_output()
+    ps.store_output("n", _image(64, 96))
+    entry = ps.get_output("n")
+    assert entry is not None
+    assert entry["width"] == 96 and entry["height"] == 64
+    assert entry["proxy"][:2] == b"\xff\xd8"  # JPEG full frame
+    assert entry["crop"][:8] == b"\x89PNG\r\n\x1a\n"  # PNG crop
+
+
+def test_crop_is_lossless_because_grain_is_high_frequency():
+    """JPEG would smooth exactly the detail the crop exists to show, making
+    grain look finer and softer than it renders."""
+    _reset_output()
+    ps.store_output("n", _image(256, 256))
+    entry = ps.get_output("n")
+    assert entry["crop"][:8] == b"\x89PNG\r\n\x1a\n", "the 1:1 crop must not be lossy"
+
+
+def test_crop_is_native_resolution_not_downscaled():
+    """Grain size is absolute, so a downscaled crop would misreport it."""
+    from PIL import Image
+    import io as _io
+
+    _reset_output()
+    src = _image(1024, 1024)
+    ps.store_output("n", src)
+    with Image.open(_io.BytesIO(ps.get_output("n")["crop"])) as im:
+        assert im.size == (ps.CROP_EDGE, ps.CROP_EDGE)
+
+    # And the pixels must match the centre of the source exactly.
+    top = (1024 - ps.CROP_EDGE) // 2
+    expected = (src[0, top : top + ps.CROP_EDGE, top : top + ps.CROP_EDGE, :3] * 255 + 0.5).to(torch.uint8)
+    with Image.open(_io.BytesIO(ps.get_output("n")["crop"])) as im:
+        import numpy as np
+
+        got = torch.from_numpy(np.asarray(im.convert("RGB")))
+    assert torch.equal(got, expected)
+
+
+def test_crop_handles_images_smaller_than_the_crop():
+    _reset_output()
+    ps.store_output("n", _image(64, 48))
+    from PIL import Image
+    import io as _io
+
+    with Image.open(_io.BytesIO(ps.get_output("n")["crop"])) as im:
+        assert im.size == (48, 48)
+
+
+def test_output_cache_is_bounded_and_lru():
+    _reset_output()
+    img = _image(16, 16)
+    for i in range(ps.MAX_ENTRIES + 6):
+        ps.store_output(str(i), img)
+    assert len(ps._out_cache) <= ps.MAX_ENTRIES
+    assert ps.get_output("0") is None
+
+
+def test_output_cache_does_not_double_count_bytes():
+    _reset_output()
+    img = _image(64, 64)
+    ps.store_output("n", img)
+    first = ps._out_bytes
+    for _ in range(4):
+        ps.store_output("n", img)
+    assert len(ps._out_cache) == 1 and ps._out_bytes == first
+
+
+def test_output_and_input_caches_are_independent():
+    _reset()
+    _reset_output()
+    ps.store("n", _image(32, 32))
+    assert ps.get_output("n") is None
+    ps.store_output("n", _image(32, 32))
+    assert ps.get("n") is not None and ps.get_output("n") is not None
+
+
+def test_store_output_for_node_is_silent_without_hidden_data():
+    _reset_output()
+
+    class Fake:
+        hidden = None
+
+    assert ps.store_output_for_node(Fake, _image()) is False
+
+
+def test_bad_output_is_ignored_rather_than_raising():
+    _reset_output()
+    ps.store_output("n", None)  # type: ignore[arg-type]
+    ps.store_output("n", torch.rand(32, 32, 3))
+    assert ps.get_output("n") is None

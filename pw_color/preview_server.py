@@ -26,12 +26,21 @@ _log = logging.getLogger("PW_Color")
 #: Long side of the cached proxy. Big enough to judge a grade on a node panel,
 #: small enough that caching a dozen costs a few megabytes.
 PROXY_LONG_EDGE = 512
+#: Edge length of the 1:1 crop kept for spatial nodes.
+#:
+#: Grain and halation are the reason this exists. Grain size is absolute — the
+#: whole point of PW Grain is that 1.4px grain is 1.4px at any resolution — so a
+#: downscaled preview shows it finer than it will render, which is worse than
+#: no preview at all. A native-resolution crop shows it at true size.
+CROP_EDGE = 512
 MAX_ENTRIES = 24
 MAX_BYTES = 48 * 1024 * 1024
 
 _lock = threading.Lock()
 _cache: "OrderedDict[str, dict]" = OrderedDict()
+_out_cache: "OrderedDict[str, dict]" = OrderedDict()
 _bytes = 0
+_out_bytes = 0
 
 
 def _histogram(image: torch.Tensor, bins: int = 256) -> dict[str, list[float]]:
@@ -94,6 +103,81 @@ def store(node_id: str, image: torch.Tensor) -> None:
         while _cache and (len(_cache) > MAX_ENTRIES or _bytes > MAX_BYTES):
             _, dropped = _cache.popitem(last=False)
             _bytes -= len(dropped["proxy"])
+
+
+def _encode_crop(image: torch.Tensor) -> bytes:
+    """A native-resolution centre crop, as PNG.
+
+    PNG, not JPEG, and this matters: JPEG smooths high-frequency detail, which
+    is precisely what grain *is*. A lossy crop would show the user a softer,
+    finer grain than the one being rendered.
+    """
+    from PIL import Image
+
+    img = image[0, ..., :3].float().clamp(0, 1)
+    h, w = img.shape[0], img.shape[1]
+    edge = min(CROP_EDGE, h, w)
+    top, left = (h - edge) // 2, (w - edge) // 2
+    arr = (img[top : top + edge, left : left + edge] * 255.0 + 0.5).clamp(0, 255).to(torch.uint8).cpu().numpy()
+    buf = _io.BytesIO()
+    Image.fromarray(arr, "RGB").save(buf, format="PNG", compress_level=1)
+    return buf.getvalue()
+
+
+def store_output(node_id: str, image: torch.Tensor) -> None:
+    """Cache what a node *produced*, for nodes whose effect cannot be previewed
+    any other way.
+
+    Colour nodes bake to a lattice and the browser can reproduce them exactly.
+    Grain, halation and vignette are spatial, so there is nothing to bake — the
+    only honest preview is the real output, which means caching it.
+    """
+    global _out_bytes
+    if image is None or image.ndim != 4:
+        return
+    try:
+        entry = {
+            "proxy": _encode_proxy(image),
+            "crop": _encode_crop(image),
+            "width": int(image.shape[2]),
+            "height": int(image.shape[1]),
+        }
+    except Exception:  # pragma: no cover - never let a preview break a render
+        _log.exception("PW Color: failed to cache output for node %s", node_id)
+        return
+
+    size = len(entry["proxy"]) + len(entry["crop"])
+    with _lock:
+        old = _out_cache.pop(str(node_id), None)
+        if old is not None:
+            _out_bytes -= len(old["proxy"]) + len(old["crop"])
+        _out_cache[str(node_id)] = entry
+        _out_bytes += size
+        while _out_cache and (len(_out_cache) > MAX_ENTRIES or _out_bytes > MAX_BYTES):
+            _, dropped = _out_cache.popitem(last=False)
+            _out_bytes -= len(dropped["proxy"]) + len(dropped["crop"])
+
+
+def get_output(node_id: str) -> dict | None:
+    with _lock:
+        entry = _out_cache.get(str(node_id))
+        if entry is not None:
+            _out_cache.move_to_end(str(node_id))
+        return entry
+
+
+def store_output_for_node(node_cls, image: torch.Tensor) -> bool:
+    """:func:`store_output`, keyed by the executing node. Never raises."""
+    hidden = getattr(node_cls, "hidden", None)
+    node_id = getattr(hidden, "unique_id", None) if hidden is not None else None
+    if node_id is None:
+        return False
+    try:
+        store_output(str(node_id), image)
+        return True
+    except Exception:
+        _log.warning("PW Color: could not cache the output for node %s", node_id, exc_info=True)
+        return False
 
 
 def store_for_node(node_cls, image: torch.Tensor) -> bool:
@@ -173,6 +257,20 @@ def register_routes() -> bool:
         return web.json_response(
             {"histogram": entry["histogram"], "width": entry["width"], "height": entry["height"]}
         )
+
+    @routes.get("/pw_color/output/{node_id}")
+    async def _output_proxy(request):
+        entry = get_output(request.match_info["node_id"])
+        if entry is None:
+            return web.json_response({"error": "no cached output"}, status=404)
+        return web.Response(body=entry["proxy"], content_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @routes.get("/pw_color/output_crop/{node_id}")
+    async def _output_crop(request):
+        entry = get_output(request.match_info["node_id"])
+        if entry is None:
+            return web.json_response({"error": "no cached output"}, status=404)
+        return web.Response(body=entry["crop"], content_type="image/png", headers={"Cache-Control": "no-store"})
 
     @routes.get("/pw_color/presets")
     async def _presets(_request):

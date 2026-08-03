@@ -927,8 +927,25 @@ function shared() {
   if (!renderer) renderer = new Renderer();
   return renderer;
 }
-var Preview = class {
+var Preview = class _Preview {
   source = null;
+  /**
+   * The node's actual rendered output, for spatial nodes.
+   *
+   * Grain, halation and vignette cannot be baked into a lattice and cannot be
+   * reproduced in the browser, so the only honest preview is what the node
+   * really produced. When this is set it is what gets drawn, and holding the
+   * compare key falls back to `source` — the node's input.
+   */
+  output = null;
+  /**
+   * A native-resolution centre crop of the output.
+   *
+   * Used once zoomed in, because grain size is *absolute*: a downscaled
+   * preview would show 1.4px grain finer than it renders, which is worse than
+   * showing nothing.
+   */
+  crop = null;
   lattice = null;
   digest = "";
   /** 0 shows the original across the whole panel; 1 shows the grade. */
@@ -941,6 +958,7 @@ var Preview = class {
   panX = 0;
   panY = 0;
   loading = false;
+  loadingOutput = false;
   dragging = null;
   dragFrom = { x: 0, y: 0, panX: 0, panY: 0 };
   /**
@@ -967,25 +985,65 @@ var Preview = class {
       this.loading = false;
     }
   }
+  /**
+   * Fetch the node's rendered output and its 1:1 crop.
+   *
+   * For spatial nodes only — colour nodes reproduce themselves exactly through
+   * the lattice and have no need of this.
+   */
+  async loadOutput(nodeId, onReady) {
+    if (this.loadingOutput) return;
+    this.loadingOutput = true;
+    try {
+      const [full, crop] = await Promise.all([
+        fetch(`/pw_color/output/${nodeId}`),
+        fetch(`/pw_color/output_crop/${nodeId}`)
+      ]);
+      if (!full.ok) return;
+      const bmp = await createImageBitmap(await full.blob());
+      this.output?.dispose();
+      this.output = new TexSource(bmp);
+      if (crop.ok) {
+        const cbmp = await createImageBitmap(await crop.blob());
+        this.crop?.dispose();
+        this.crop = new TexSource(cbmp);
+      }
+      onReady();
+    } catch (err) {
+      console.debug("[PW Color] output fetch failed, will retry after the next run", err);
+    } finally {
+      this.loadingOutput = false;
+    }
+  }
   get hasImage() {
-    return this.source !== null;
+    return this.source !== null || this.output !== null;
+  }
+  /** Zoom past this switches to the native crop, where there is one. */
+  static CROP_AT = 1.4;
+  /** What to draw right now, and whether it is the true-scale crop. */
+  active() {
+    if (this.comparing && this.source) return { tex: this.source, native: false };
+    if (this.crop && this.zoom >= _Preview.CROP_AT) return { tex: this.crop, native: true };
+    return { tex: this.output ?? this.source, native: false };
   }
   draw(ctx, r) {
     fillPanel(ctx, r, PW.color.well, PW.metrics.radiusPanel, PW.color.border);
-    if (!this.source) {
+    const { tex, native } = this.active();
+    if (!tex) {
       text(ctx, "Run the graph once to preview", r.x + r.w / 2, r.y + r.h / 2, {
         colour: PW.color.textMute,
         align: "center"
       });
       return;
     }
-    const { uvScale, uvOffset } = this.view(r);
+    const { uvScale, uvOffset } = this.view(r, tex);
     const wipe = this.comparing ? 0 : this.wipe;
     const w = Math.max(1, Math.round(r.w));
     const h = Math.max(1, Math.round(r.h));
+    const lattice = this.output ? null : this.lattice;
     const out = shared().render(
-      this.source,
-      this.lattice,
+      tex,
+      lattice,
       this.digest,
       w,
       h,
@@ -1017,11 +1075,22 @@ var Preview = class {
     }
     if (this.comparing) {
       text(ctx, "before", r.x + 8, r.y + 12, { colour: PW.color.accent });
+    } else if (native) {
+      text(ctx, "1:1 crop", r.x + r.w - 8, r.y + 12, {
+        colour: PW.color.accent,
+        align: "right",
+        font: PW.font.mono
+      });
     } else if (this.zoom > 1.01) {
       text(ctx, `${this.zoom.toFixed(1)}x`, r.x + r.w - 8, r.y + 12, {
         colour: PW.color.textMute,
         align: "right",
         font: PW.font.mono
+      });
+    } else if (this.crop) {
+      text(ctx, "zoom for 1:1", r.x + r.w - 8, r.y + 12, {
+        colour: PW.color.textMute,
+        align: "right"
       });
     }
   }
@@ -1032,9 +1101,9 @@ var Preview = class {
    * crops, and a preview you cannot see all of is not much use for judging a
    * grade on a portrait frame in a wide panel.
    */
-  view(r) {
-    const iw = this.source.width;
-    const ih = this.source.height;
+  view(r, tex = this.active().tex) {
+    const iw = tex.width;
+    const ih = tex.height;
     const fit = Math.min(r.w / iw, r.h / ih);
     const s = fit * this.zoom;
     const sx = r.w / (iw * s);
@@ -2018,8 +2087,81 @@ function syncStrength(node, ui) {
   node.setDirtyCanvas?.(true, true);
 }
 
-// src/nodes/grain.ts
+// src/nodes/spatial_preview.ts
 var M2 = PW.metrics;
+var HEADER_H2 = 18;
+var handles = /* @__PURE__ */ new WeakMap();
+function attachSpatialPreview(nodeType, opts) {
+  const onCreated = nodeType.prototype.onNodeCreated;
+  nodeType.prototype.onNodeCreated = function() {
+    const r = onCreated?.apply(this, arguments);
+    const preview = new Preview();
+    const extraTop = (n) => widgetHeight(n) + M2.gapSection;
+    const previewRect = (n) => {
+      const x = M2.padding;
+      const w = n.size[0] - M2.padding * 2;
+      const y = extraTop(n) + (opts.extra?.(n) ?? 0) + HEADER_H2 + 6;
+      return { x, y, w, h: opts.height };
+    };
+    handles.set(this, { preview, previewRect, extraTop });
+    const panel = (opts.extra?.(this) ?? 0) + HEADER_H2 + 6 + opts.height + M2.gapSection + M2.padding;
+    fitPanel(this, panel, opts.minWidth);
+    const refresh = () => {
+      void preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+      void preview.loadOutput(this.id, () => this.setDirtyCanvas?.(true, true));
+    };
+    refresh();
+    const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+    const stopRun = onRunComplete(refresh);
+    const priorRemoved = this.onRemoved;
+    this.onRemoved = function() {
+      stopCompare();
+      stopRun();
+      priorRemoved?.call(this);
+    };
+    chainHandler(this, "onDrawForeground", function(ctx) {
+      if (this.flags?.collapsed) return;
+      const x = M2.padding;
+      const w = this.size[0] - M2.padding * 2;
+      opts.drawExtra?.(ctx, this, extraTop(this), w);
+      const pr = previewRect(this);
+      sectionHeader(ctx, opts.label ?? "Result", { x, y: pr.y - HEADER_H2 - 6, w, h: HEADER_H2 }, BADGE.render);
+      preview.comparing = isComparing();
+      preview.draw(ctx, pr);
+    });
+    chainHandler(this, "onMouseDown", function(e, pos) {
+      const pr = previewRect(this);
+      if (!hit(pr, pos[0], pos[1])) return false;
+      preview.onPointerDown(pos[0], pos[1], pr, !!e?.shiftKey, e?.detail === 2);
+      this.setDirtyCanvas?.(true, true);
+      return true;
+    });
+    chainHandler(this, "onMouseMove", function(_e, pos) {
+      if (!preview.onPointerMove(pos[0], pos[1], previewRect(this))) return false;
+      this.setDirtyCanvas?.(true, true);
+      return true;
+    });
+    chainHandler(this, "onMouseUp", function() {
+      if (!preview.onPointerUp()) return false;
+      this.setDirtyCanvas?.(true, true);
+      return true;
+    });
+    chainHandler(this, "onMouseWheel", function(e, pos) {
+      const pr = previewRect(this);
+      if (!hit(pr, pos[0], pos[1])) return false;
+      const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
+      if (!preview.onWheel(pos[0], pos[1], pr, delta)) return false;
+      e?.preventDefault?.();
+      e?.stopPropagation?.();
+      this.setDirtyCanvas?.(true, true);
+      return true;
+    });
+    return r;
+  };
+}
+
+// src/nodes/grain.ts
+var M3 = PW.metrics;
 var PANEL_H = 96;
 var EDGE_FALLOFF = 0.04;
 function smoothstep2(e0, e1, x) {
@@ -2038,7 +2180,7 @@ function num(node, name, fallback) {
   return typeof v === "number" ? v : fallback;
 }
 function drawResponse(ctx, r, node) {
-  fillPanel(ctx, r, PW.color.well, M2.radiusPanel, PW.color.border);
+  fillPanel(ctx, r, PW.color.well, M3.radiusPanel, PW.color.border);
   const s = num(node, "shadows", 0.2);
   const m = num(node, "midtones", 1);
   const h = num(node, "highlights", 0.1);
@@ -2086,20 +2228,17 @@ function registerGrain() {
     name: "pw.color.grain",
     async beforeRegisterNodeDef(nodeType, nodeData) {
       if (nodeData?.name !== "PW_Grain") return;
-      const onCreated = nodeType.prototype.onNodeCreated;
-      nodeType.prototype.onNodeCreated = function() {
-        const r = onCreated?.apply(this, arguments);
-        fitPanel(this, PANEL_H + 22 + M2.gapSection + M2.padding, 320);
-        chainHandler(this, "onDrawForeground", function(ctx) {
-          if (this.flags?.collapsed) return;
-          const x = M2.padding;
-          const w = this.size[0] - M2.padding * 2;
-          const y = this.size[1] - PANEL_H - M2.padding - 18;
-          sectionHeader(ctx, "Tonal response", { x, y, w, h: 18 }, BADGE.render);
-          drawResponse(ctx, { x, y: y + 20, w, h: PANEL_H - 20 }, this);
-        });
-        return r;
-      };
+      attachSpatialPreview(nodeType, {
+        height: 190,
+        minWidth: 340,
+        label: "Result",
+        extra: () => PANEL_H + 18 + M3.gapSection,
+        drawExtra: (ctx, node, top, w) => {
+          const x = M3.padding;
+          sectionHeader(ctx, "Tonal response", { x, y: top, w, h: 18 }, BADGE.render);
+          drawResponse(ctx, { x, y: top + 20, w, h: PANEL_H - 20 }, node);
+        }
+      });
       const onWidgetChanged = nodeType.prototype.onWidgetChanged;
       nodeType.prototype.onWidgetChanged = function() {
         const res = onWidgetChanged?.apply(this, arguments);
@@ -2111,11 +2250,11 @@ function registerGrain() {
 }
 
 // src/nodes/look.ts
-var M3 = PW.metrics;
+var M4 = PW.metrics;
 var THUMB_H = 74;
 var THUMB_W = 96;
 var HSL_ROW_H = 22;
-var HEADER_H2 = 18;
+var HEADER_H3 = 18;
 var PREVIEW_H2 = 150;
 function refreshPreview(node) {
   const ui = uis2.get(node);
@@ -2327,7 +2466,7 @@ function drawHsl(ctx, r, node, ui) {
     const swatchW = 46;
     const c = 0.11;
     const rgbCss = oklchCss(0.62, c, hue);
-    fillPanel(ctx, { x: r.x, y: y + 3, w: swatchW, h: HSL_ROW_H - 7 }, rgbCss, M3.radiusControl);
+    fillPanel(ctx, { x: r.x, y: y + 3, w: swatchW, h: HSL_ROW_H - 7 }, rgbCss, M4.radiusControl);
     text(ctx, name, r.x + swatchW + 8, y + HSL_ROW_H / 2, { colour: PW.color.textDim });
     const trackX = r.x + swatchW + 62;
     const trackW = rowW - (swatchW + 62) - 40;
@@ -2361,30 +2500,30 @@ function gridShape(width, count) {
   return { cols, rows, cellW };
 }
 function layout(node, ui) {
-  const x = M3.padding;
-  const w = node.size[0] - M3.padding * 2;
+  const x = M4.padding;
+  const w = node.size[0] - M4.padding * 2;
   const { rows } = gridShape(w, Math.max(1, ui.presets.length));
-  let y = widgetHeight(node) + M3.gapSection;
-  const previewHeader = { x, y, w, h: HEADER_H2 };
-  y += HEADER_H2 + 6;
+  let y = widgetHeight(node) + M4.gapSection;
+  const previewHeader = { x, y, w, h: HEADER_H3 };
+  y += HEADER_H3 + 6;
   const preview = { x, y, w, h: PREVIEW_H2 };
-  y += PREVIEW_H2 + M3.gapSection;
-  const presetHeader = { x, y, w, h: HEADER_H2 };
-  y += HEADER_H2 + 6;
+  y += PREVIEW_H2 + M4.gapSection;
+  const presetHeader = { x, y, w, h: HEADER_H3 };
+  y += HEADER_H3 + 6;
   const strip = { x, y, w, h: rows * CELL_H + (rows - 1) * 6 };
-  y += strip.h + M3.gapSection;
-  const hslHeader = { x, y, w, h: HEADER_H2 };
-  y += HEADER_H2 + 6;
+  y += strip.h + M4.gapSection;
+  const hslHeader = { x, y, w, h: HEADER_H3 };
+  y += HEADER_H3 + 6;
   const hslTabs = { x, y, w: Math.min(w, 220), h: 22 };
   const hslRows = { x, y: y + 26, w, h: HSL_BANDS.length * HSL_ROW_H };
   return { previewHeader, preview, presetHeader, strip, hslHeader, hslTabs, hslRows };
 }
 function panelHeight(node, ui) {
-  const w = Math.max(200, node.size[0] - M3.padding * 2);
+  const w = Math.max(200, node.size[0] - M4.padding * 2);
   const { rows } = gridShape(w, Math.max(1, ui.presets.length));
   const strip = rows * CELL_H + (rows - 1) * 6;
-  const base = HEADER_H2 + 6 + PREVIEW_H2 + M3.gapSection + HEADER_H2 + 6 + strip + M3.gapSection + HEADER_H2 + 6 + M3.padding;
-  return base + (ui.hslOpen ? 26 + HSL_BANDS.length * HSL_ROW_H + M3.gapControl : 0);
+  const base = HEADER_H3 + 6 + PREVIEW_H2 + M4.gapSection + HEADER_H3 + 6 + strip + M4.gapSection + HEADER_H3 + 6 + M4.padding;
+  return base + (ui.hslOpen ? 26 + HSL_BANDS.length * HSL_ROW_H + M4.gapControl : 0);
 }
 function registerLook() {
   app.registerExtension({
@@ -2538,7 +2677,7 @@ function registerLook() {
 }
 function drawStrip(ctx, r, node, ui) {
   if (!ui.presets.length) {
-    fillPanel(ctx, r, PW.color.well, M3.radiusPanel, PW.color.border);
+    fillPanel(ctx, r, PW.color.well, M4.radiusPanel, PW.color.border);
     text(ctx, "Loading presets...", r.x + r.w / 2, r.y + r.h / 2, { colour: PW.color.textMute, align: "center" });
     return;
   }
@@ -2555,12 +2694,12 @@ function drawStrip(ctx, r, node, ui) {
     const thumb = ui.thumbs.get(p.id);
     if (thumb) {
       ctx.save();
-      fillPanel(ctx, cell, PW.color.well, M3.radiusControl);
+      fillPanel(ctx, cell, PW.color.well, M4.radiusControl);
       ctx.clip();
       ctx.drawImage(thumb, cell.x, cell.y, cell.w, cell.h);
       ctx.restore();
     } else {
-      fillPanel(ctx, cell, PW.color.well, M3.radiusControl);
+      fillPanel(ctx, cell, PW.color.well, M4.radiusControl);
       text(ctx, "run once", cell.x + cell.w / 2, cell.y + cell.h / 2, {
         colour: PW.color.textMute,
         align: "center"
@@ -2577,11 +2716,22 @@ function drawStrip(ctx, r, node, ui) {
   ctx.restore();
 }
 
+// src/nodes/optics.ts
+function registerOptics() {
+  app.registerExtension({
+    name: "pw.color.optics",
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+      if (nodeData?.name !== "PW_Optics") return;
+      attachSpatialPreview(nodeType, { height: 200, minWidth: 340, label: "Result" });
+    }
+  });
+}
+
 // src/nodes/palette.ts
-var M4 = PW.metrics;
+var M5 = PW.metrics;
 var STRIP_H = 92;
 var BLOCK_H = 44;
-var PANEL_BLOCK = STRIP_H + 22 + M4.gapSection + M4.padding;
+var PANEL_BLOCK = STRIP_H + 22 + M5.gapSection + M5.padding;
 var palettes = /* @__PURE__ */ new WeakMap();
 var toasts = /* @__PURE__ */ new WeakMap();
 var saved = /* @__PURE__ */ new WeakMap();
@@ -2594,7 +2744,7 @@ function swatchRects(r, n) {
 function drawPalette(ctx, r, node) {
   const data = palettes.get(node);
   if (!data || data.colors.length === 0) {
-    fillPanel(ctx, r, PW.color.well, M4.radiusPanel, PW.color.border);
+    fillPanel(ctx, r, PW.color.well, M5.radiusPanel, PW.color.border);
     text(ctx, "Run the graph to extract a palette", r.x + r.w / 2, r.y + r.h / 2, {
       colour: PW.color.textMute,
       align: "center"
@@ -2605,11 +2755,11 @@ function drawPalette(ctx, r, node) {
   const peak = Math.max(...data.colors.map((c) => c.coverage), 1e-6);
   data.colors.forEach((sw, i) => {
     const c = cells[i];
-    roundRect(ctx, { x: c.x, y: c.y, w: c.w, h: BLOCK_H }, M4.radiusControl);
+    roundRect(ctx, { x: c.x, y: c.y, w: c.w, h: BLOCK_H }, M5.radiusControl);
     ctx.fillStyle = sw.hex;
     ctx.fill();
     ctx.strokeStyle = PW.color.border;
-    ctx.lineWidth = M4.borderHair;
+    ctx.lineWidth = M5.borderHair;
     ctx.stroke();
     ctx.font = PW.font.mono;
     if (ctx.measureText(sw.hex).width <= c.w - 2) {
@@ -2649,21 +2799,21 @@ function drawHeader(ctx, r, node) {
   });
   const { lock, exp, lockLabel } = headerChips(ctx, r, node);
   const hasPalette = !!palettes.get(node);
-  fillPanel(ctx, exp, PW.color.chip, M4.radiusControl, PW.color.borderSoft);
+  fillPanel(ctx, exp, PW.color.chip, M5.radiusControl, PW.color.borderSoft);
   text(ctx, "export", exp.x + exp.w / 2, r.y + r.h / 2, {
     colour: hasPalette ? PW.color.textMute : PW.color.borderSoft,
     align: "center"
   });
-  fillPanel(ctx, lock, locked ? PW.color.chipActive : PW.color.chip, M4.radiusControl, PW.color.borderSoft);
+  fillPanel(ctx, lock, locked ? PW.color.chipActive : PW.color.chip, M5.radiusControl, PW.color.borderSoft);
   text(ctx, lockLabel, lock.x + lock.w / 2, r.y + r.h / 2, {
     colour: locked ? PW.color.text : PW.color.textMute,
     align: "center"
   });
 }
 function layout2(node) {
-  const x = M4.padding;
-  const w = node.size[0] - M4.padding * 2;
-  const y = node.size[1] - STRIP_H - M4.padding - 22;
+  const x = M5.padding;
+  const w = node.size[0] - M5.padding * 2;
+  const y = node.size[1] - STRIP_H - M5.padding - 22;
   return { header: { x, y, w, h: 18 }, strip: { x, y: y + 22, w, h: STRIP_H } };
 }
 function toGpl(data, name) {
@@ -2904,4 +3054,5 @@ app.registerExtension({
 registerCurves();
 registerGrain();
 registerLook();
+registerOptics();
 registerPalette();

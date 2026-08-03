@@ -7,6 +7,7 @@ import { PW } from './theme.ts';
 import { registerCurves } from './nodes/curves.ts';
 import { registerGrain } from './nodes/grain.ts';
 import { registerLook } from './nodes/look.ts';
+import { registerOptics } from './nodes/optics.ts';
 import { registerPalette } from './nodes/palette.ts';
 import { addResetMenu } from './widgets/reset.ts';
 
@@ -63,4 +64,5 @@ app.registerExtension({
 registerCurves();
 registerGrain();
 registerLook();
+registerOptics();
 registerPalette();

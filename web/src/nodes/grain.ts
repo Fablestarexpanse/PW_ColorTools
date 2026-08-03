@@ -11,10 +11,10 @@
  * architecture is explicit that the LUT/spatial split gets surfaced.
  */
 
-import { app, chainHandler, getWidget, type NodeLike } from '../comfy.ts';
+import { app, getWidget, type NodeLike } from '../comfy.ts';
 import { BADGE, PW } from '../theme.ts';
 import { fillPanel, hairline, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
-import { fitPanel } from '../widgets/layout.ts';
+import { attachSpatialPreview } from './spatial_preview.ts';
 
 const M = PW.metrics;
 const PANEL_H = 96;
@@ -102,25 +102,19 @@ export function registerGrain(): void {
     async beforeRegisterNodeDef(nodeType: any, nodeData: any) {
       if (nodeData?.name !== 'PW_Grain') return;
 
-      const onCreated = nodeType.prototype.onNodeCreated;
-      nodeType.prototype.onNodeCreated = function (this: NodeLike) {
-        const r = onCreated?.apply(this, arguments as any);
-        // Size from LiteGraph's own widget measurement plus our panel, never
-        // from a guessed constant — PW Grain has a lot of widgets and the
-        // guess collided with them.
-        fitPanel(this, PANEL_H + 22 + M.gapSection + M.padding, 320);
-
-        chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
-          if ((this as any).flags?.collapsed) return;
+      // The tonal response curve sits above the result preview: it is what
+      // you set, the preview is what you got.
+      attachSpatialPreview(nodeType, {
+        height: 190,
+        minWidth: 340,
+        label: 'Result',
+        extra: () => PANEL_H + 18 + M.gapSection,
+        drawExtra: (ctx, node, top, w) => {
           const x = M.padding;
-          const w = this.size[0] - M.padding * 2;
-          const y = this.size[1] - PANEL_H - M.padding - 18;
-          sectionHeader(ctx, 'Tonal response', { x, y, w, h: 18 }, BADGE.render);
-          drawResponse(ctx, { x, y: y + 20, w, h: PANEL_H - 20 }, this);
-        });
-
-        return r;
-      };
+          sectionHeader(ctx, 'Tonal response', { x, y: top, w, h: 18 }, BADGE.render);
+          drawResponse(ctx, { x, y: top + 20, w, h: PANEL_H - 20 }, node);
+        },
+      });
 
       // Redraw the response curve as the sliders move.
       const onWidgetChanged = nodeType.prototype.onWidgetChanged;

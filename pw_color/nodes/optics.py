@@ -78,6 +78,7 @@ class PW_Optics(io.ComfyNode):
                 io.Image.Output(display_name="image"),
                 io.Custom("LOOK").Output(display_name="look"),
             ],
+            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -94,6 +95,10 @@ class PW_Optics(io.ComfyNode):
         chromatic_aberration: float = 0.0,
         look_in: dict | None = None,
     ) -> io.NodeOutput:
+        from ..preview_server import store_for_node, store_output_for_node
+
+        store_for_node(cls, image)
+
         out = image
         ops: list[LookOp] = []
 
@@ -125,6 +130,10 @@ class PW_Optics(io.ComfyNode):
                     lut_safe=False,
                 )
             )
+
+        # Spatial, so there is nothing to bake and nothing the browser can
+        # reproduce. The real output is the only honest preview.
+        store_output_for_node(cls, out)
 
         look = Look.from_dict(look_in) if look_in else Look()
         for op in ops:
