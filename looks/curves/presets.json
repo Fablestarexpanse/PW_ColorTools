@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "presets": [
+    {
+      "id": "s-curve",
+      "name": "S-curve",
+      "description": "Standard contrast. Shadows down, highlights up, midtone slope steepened.",
+      "curves": { "luma": [[0.0, 0.0], [0.25, 0.19], [0.75, 0.81], [1.0, 1.0]] }
+    },
+    {
+      "id": "faded",
+      "name": "Faded",
+      "description": "Lifted blacks and pulled whites. The print-film-emulation look.",
+      "curves": { "luma": [[0.0, 0.075], [0.3, 0.32], [0.7, 0.75], [1.0, 0.94]] }
+    },
+    {
+      "id": "crush",
+      "name": "Crush",
+      "description": "Deep blacks, held highlights. Harder than an S-curve at the bottom.",
+      "curves": { "luma": [[0.0, 0.0], [0.22, 0.11], [0.6, 0.6], [1.0, 1.0]] }
+    },
+    {
+      "id": "matte",
+      "name": "Matte",
+      "description": "Lifted shadows with a soft shoulder. Flatter than faded, no white pull.",
+      "curves": { "luma": [[0.0, 0.06], [0.35, 0.38], [0.8, 0.86], [1.0, 1.0]] }
+    },
+    {
+      "id": "cool-shadows",
+      "name": "Cool shadows",
+      "description": "Blue lifted in the shadows, red pulled. Split-tone with per-channel curves.",
+      "curves": {
+        "r": [[0.0, 0.0], [0.35, 0.32], [1.0, 1.0]],
+        "b": [[0.0, 0.045], [0.35, 0.39], [1.0, 1.0]]
+      }
+    },
+    {
+      "id": "warm-highlights",
+      "name": "Warm highlights",
+      "description": "Red raised and blue lowered above the midpoint. Sunlight on skin.",
+      "curves": {
+        "r": [[0.0, 0.0], [0.6, 0.63], [1.0, 1.0]],
+        "b": [[0.0, 0.0], [0.6, 0.565], [1.0, 0.975]]
+      }
+    }
+  ]
+}

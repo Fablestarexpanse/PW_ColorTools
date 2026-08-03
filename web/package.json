@@ -1,0 +1,17 @@
+{
+  "name": "comfyui-pw-color-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Frontend for ComfyUI-PW-Color. Plain TypeScript + canvas, no framework.",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=dist/pw_color.js --external:/scripts/* --external:/extensions/*",
+    "watch": "npm run build -- --watch --sourcemap",
+    "typecheck": "tsc --noEmit",
+    "parity": "node --experimental-strip-types --no-warnings tools/parity.ts"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,26 @@
+[project]
+name = "comfyui_pw_color"
+description = "PW Color - colour nodes for ComfyUI built for artists, illustrators and photographers: monotonic curves with hue preservation, film grain with tonal response, palette extraction in OKLab, VAE round-trip colour matching, and a look system that bakes to .cube. Preview and render are the same pixels."
+version = "0.1.0"
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/Fablestarexpanse/ComfyUI-PW-Color"
+
+[tool.comfy]
+PublisherId = "fablestarexpanse"
+DisplayName = "PW Color"
+Icon = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# rootdir has an __init__.py (ComfyUI requires it), which confuses pytest's
+# package detection. Rootdir-relative importlib mode plus an explicit
+# pythonpath keeps `import pw_color` working without treating the repo root
+# as an importable package.
+addopts = "--import-mode=importlib"
+pythonpath = ["."]
+consider_namespace_packages = false

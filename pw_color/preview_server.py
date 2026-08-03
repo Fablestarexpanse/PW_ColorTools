@@ -1,0 +1,145 @@
+"""Input proxy cache and HTTP routes.
+
+Solves the limitation every existing colour pack lists: "preview only works
+after the graph has run once". We cache the decoded input tensor per node id as
+a small JPEG proxy plus a histogram, and serve them on request, so a node can
+fetch its own input on demand instead of waiting for an execution to hand it one.
+
+Cache policy: bounded by entry count and total bytes, evicted least-recently-used.
+A colour node's input is a full-resolution decoded image and there can be a lot
+of them in a graph, so an unbounded dict here would be a slow memory leak that
+only shows up in long sessions — which is exactly the kind of bug users blame on
+ComfyUI rather than on us.
+"""
+
+from __future__ import annotations
+
+import io as _io
+import logging
+import threading
+from collections import OrderedDict
+
+import torch
+
+_log = logging.getLogger("PW_Color")
+
+#: Long side of the cached proxy. Big enough to judge a grade on a node panel,
+#: small enough that caching a dozen costs a few megabytes.
+PROXY_LONG_EDGE = 512
+MAX_ENTRIES = 24
+MAX_BYTES = 48 * 1024 * 1024
+
+_lock = threading.Lock()
+_cache: "OrderedDict[str, dict]" = OrderedDict()
+_bytes = 0
+
+
+def _histogram(image: torch.Tensor, bins: int = 256) -> dict[str, list[float]]:
+    """Per-channel and luma histogram of an sRGB-encoded ``[B,H,W,3]`` tensor.
+
+    Computed here rather than in the browser because the browser only ever has
+    the downscaled proxy, and a histogram of a proxy is not the histogram of the
+    image — resampling fills in the gaps that make a posterised source obvious.
+    """
+    from .colour import luma_bt709, srgb_to_linear
+
+    img = image[0, ..., :3].reshape(-1, 3).float().clamp(0, 1)
+    out: dict[str, list[float]] = {}
+    for i, key in enumerate(("r", "g", "b")):
+        idx = (img[:, i] * (bins - 1)).round().to(torch.int64)
+        out[key] = torch.bincount(idx, minlength=bins).float().tolist()
+    lum = luma_bt709(srgb_to_linear(img)).clamp(0, 1)
+    out["luma"] = torch.bincount((lum * (bins - 1)).round().to(torch.int64), minlength=bins).float().tolist()
+    return out
+
+
+def _encode_proxy(image: torch.Tensor) -> bytes:
+    from PIL import Image
+
+    img = image[0, ..., :3].float().clamp(0, 1)
+    h, w = img.shape[0], img.shape[1]
+    scale = min(1.0, PROXY_LONG_EDGE / max(h, w))
+    arr = (img * 255.0 + 0.5).clamp(0, 255).to(torch.uint8).cpu().numpy()
+    pil = Image.fromarray(arr, "RGB")
+    if scale < 1.0:
+        pil = pil.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
+    buf = _io.BytesIO()
+    pil.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
+
+
+def store(node_id: str, image: torch.Tensor) -> None:
+    """Cache a node's input. Safe to call from the execution thread."""
+    global _bytes
+    if image is None or image.ndim != 4:
+        return
+    try:
+        proxy = _encode_proxy(image)
+        entry = {
+            "proxy": proxy,
+            "histogram": _histogram(image),
+            "width": int(image.shape[2]),
+            "height": int(image.shape[1]),
+        }
+    except Exception:  # pragma: no cover - never let a preview break a render
+        _log.exception("PW Color: failed to cache input proxy for node %s", node_id)
+        return
+
+    with _lock:
+        old = _cache.pop(str(node_id), None)
+        if old is not None:
+            _bytes -= len(old["proxy"])
+        _cache[str(node_id)] = entry
+        _bytes += len(proxy)
+        while _cache and (len(_cache) > MAX_ENTRIES or _bytes > MAX_BYTES):
+            _, dropped = _cache.popitem(last=False)
+            _bytes -= len(dropped["proxy"])
+
+
+def get(node_id: str) -> dict | None:
+    with _lock:
+        entry = _cache.get(str(node_id))
+        if entry is not None:
+            _cache.move_to_end(str(node_id))
+        return entry
+
+
+def register_routes() -> bool:
+    """Attach our routes to ComfyUI's aiohttp app. Returns False if unavailable.
+
+    Never raises. The preview routes are a convenience; a headless run, a bare
+    import or a future rename of ``PromptServer.instance`` must degrade to "no
+    histogram in the editor", not to "the pack failed to load". ComfyUI catches
+    exceptions out of ``comfy_entrypoint`` and skips the *entire* extension, so
+    an unguarded failure here costs every node in the pack.
+    """
+    try:
+        from aiohttp import web
+        from server import PromptServer
+
+        routes = PromptServer.instance.routes
+    except Exception:  # pragma: no cover - outside a running ComfyUI server
+        _log.debug("PW Color: preview routes unavailable", exc_info=True)
+        return False
+
+    @routes.get("/pw_color/input/{node_id}")
+    async def _input_proxy(request):
+        entry = get(request.match_info["node_id"])
+        if entry is None:
+            return web.json_response({"error": "no cached input"}, status=404)
+        return web.Response(
+            body=entry["proxy"],
+            content_type="image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @routes.get("/pw_color/histogram/{node_id}")
+    async def _input_histogram(request):
+        entry = get(request.match_info["node_id"])
+        if entry is None:
+            return web.json_response({"error": "no cached input"}, status=404)
+        return web.json_response(
+            {"histogram": entry["histogram"], "width": entry["width"], "height": entry["height"]}
+        )
+
+    return True
