@@ -113,6 +113,19 @@ def test_the_look_wire_runs_the_full_length_of_the_chain(doc, by_type):
     assert ids[links[wired[0]["link"]][1]] == "PW_Grain", "the look wire should end at the last node"
 
 
+def test_the_template_card_has_a_thumbnail():
+    """ComfyUI's template browser asks for `<name>.jpg` beside the workflow and
+    falls back to a generic placeholder. The extension is not negotiable and
+    neither is the stem, so both are pinned here."""
+    thumb = WORKFLOW.with_suffix(".jpg")
+    assert thumb.is_file(), f"expected a template thumbnail at {thumb.name}"
+    strays = [
+        p.name for p in WORKFLOW.parent.iterdir()
+        if p.suffix.lower() in {".png", ".jpeg", ".webp"}
+    ]
+    assert not strays, f"ComfyUI only looks for .jpg; these will never show: {strays}"
+
+
 def test_the_workflow_names_an_image_comfyui_ships_with(by_type, doc):
     """A missing input file greets a first-time user with a red node."""
     load = next(n for n in doc["nodes"] if n["type"] == "LoadImage")

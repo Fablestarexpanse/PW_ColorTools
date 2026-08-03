@@ -354,7 +354,7 @@ whole chain to a `.cube`. Images flow whether or not you connect it.
 You do not have to build any of that by hand. The pack ships the whole chain
 already wired:
 
-**Workflow → Browse Templates → PW Color Tools**, or drag
+**Workflow → Browse Templates → Extensions → PW_ColorTools**, or drag
 [`example_workflows/pw_color_basic.json`](example_workflows/pw_color_basic.json)
 onto the canvas.
 
