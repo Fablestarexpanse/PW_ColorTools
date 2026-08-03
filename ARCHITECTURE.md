@@ -51,9 +51,22 @@ Four properties make the contract hold, and all four are enforced by
 |---|---|
 | Lattice build (TS vs torch, pre-quantisation) | agree to < 1e-6 |
 | Lattice bytes after u16 transport | **byte-identical** |
-| Trilinear sampler (same lattice in) | agree to ~6e-8 |
-| Preview vs render, 8-bit output | **identical** |
-| Preview vs render, 16-bit output | within 1 code |
+| Trilinear sampler, CPU (same lattice in) | agree to ~6e-8 |
+| CPU preview vs render, 8-bit output | **identical** |
+| CPU preview vs render, 16-bit output | within 1 code |
+| **WebGL preview vs render, 8-bit output** | **within 1 code** (mean 0.03) |
+
+The GPU row is the honest one. The shader does the same eight-corner gather as
+the CPU paths, with `NEAREST` filtering and `texelFetch` so that no hardware
+interpolation is involved — but it runs in GPU float32 against torch's float32
+and JavaScript's float64, and a value landing on a rounding boundary flips by
+one. Verified by extracting the fragment shader from the *built bundle*,
+running it over a 128×96 sweep, and comparing against a reference trilinear:
+max 1 code, mean 0.026, across 12 288 pixels.
+
+One WebGL context is shared across every node. Browsers cap live contexts at
+around sixteen and silently kill the oldest, so a per-node context would start
+losing previews at random on a busy graph.
 
 The 16-bit code is the sampler running float64 in the browser and float32 in
 torch. A float64 render path would double every intermediate on a 4K image for

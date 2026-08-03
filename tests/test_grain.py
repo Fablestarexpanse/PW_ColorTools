@@ -11,6 +11,7 @@ import pytest
 import torch
 
 from pw_color.grain import (
+    DEFAULT_CHROMA,
     GRAIN_BLEND_MODES,
     TonalResponse,
     apply_grain,
@@ -100,6 +101,56 @@ def test_larger_size_gives_longer_correlation():
     fine = procedural_field(1, 256, 256, 1.0, 5)
     coarse = procedural_field(1, 256, 256, 4.0, 5)
     assert _autocorr_at_lag(coarse, 3) > _autocorr_at_lag(fine, 3) + 0.2
+
+
+def _channel_correlation(field: torch.Tensor) -> float:
+    """Mean pairwise correlation between the three channels of a field."""
+    f = field[0].reshape(-1, 3)
+    f = f - f.mean(dim=0)
+    c = (f.T @ f) / f.shape[0]
+    d = torch.sqrt(torch.diag(c)).clamp(min=1e-9)
+    corr = c / d.unsqueeze(0) / d.unsqueeze(1)
+    return float((corr[0, 1] + corr[0, 2] + corr[1, 2]) / 3)
+
+
+def test_chroma_controls_how_coloured_the_grain_is():
+    """Fully independent channels read as sensor noise, not film. This is what
+    the chroma control exists to fix, and 1.0 is the old broken behaviour."""
+    mono = _channel_correlation(procedural_field(1, 128, 128, 2.0, 4, chroma=0.0))
+    default = _channel_correlation(procedural_field(1, 128, 128, 2.0, 4, chroma=DEFAULT_CHROMA))
+    full = _channel_correlation(procedural_field(1, 128, 128, 2.0, 4, chroma=1.0))
+    assert mono > 0.99, f"chroma 0 should be a single shared field, got correlation {mono:.3f}"
+    assert full < 0.15, f"chroma 1 should be independent channels, got correlation {full:.3f}"
+    assert default > 0.85, f"the default should be mostly luminance, got correlation {default:.3f}"
+    assert mono > default > full
+
+
+def test_amount_is_stable_across_chroma():
+    """Averaging channels reduces variance; if that is not renormalised then
+    changing chroma silently changes how strong the grain is."""
+    img = _flat(0.5, 128, 128)
+    tonal = TonalResponse()
+    energies = [
+        _grain_energy(img, apply_grain(img, procedural_field(1, 128, 128, 2.0, 4, chroma=c), tonal, amount=0.15))
+        for c in (0.0, 0.2, 0.5, 1.0)
+    ]
+    assert max(energies) / min(energies) < 1.2, energies
+
+
+def test_chroma_is_deterministic():
+    a = procedural_field(1, 64, 64, 2.0, 9, chroma=0.3)
+    b = procedural_field(1, 64, 64, 2.0, 9, chroma=0.3)
+    assert torch.equal(a, b)
+
+
+def test_procedural_field_is_mean_centred():
+    """Grain must not shift exposure. A finite field's sample mean is not
+    exactly zero, and once the channels are correlated they stop cancelling
+    each other — which showed up as `add` blend lifting the image."""
+    for chroma in (0.0, 0.2, 1.0):
+        for size in (32, 64, 256):
+            f = procedural_field(1, size, size, 2.0, 4, chroma=chroma)
+            assert abs(float(f.mean())) < 1e-6, f"chroma {chroma} at {size}px: mean {float(f.mean()):.2e}"
 
 
 def test_field_has_unit_variance_at_every_size():

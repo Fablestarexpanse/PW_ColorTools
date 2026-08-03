@@ -106,13 +106,36 @@ def _blur_separable(x: torch.Tensor, sigma: float) -> torch.Tensor:
 
 
 def _normalise(field: torch.Tensor) -> torch.Tensor:
-    """Rescale to unit standard deviation, per batch item.
+    """Centre on zero and rescale to unit standard deviation, per batch item.
 
-    Without this, coarser grain is quieter grain, and ``amount`` stops being a
-    stable unit across the size slider.
+    The rescale is why ``amount`` means the same thing at every grain size:
+    blurring noise to coarsen it also quietens it.
+
+    The centring is why grain does not shift exposure. A finite field has a
+    sample mean near but not exactly zero, and correlated channels do not
+    cancel each other the way independent ones partly do — so once grain became
+    mostly luminance, `add` blend started lifting the image by a code value.
+    Plates are mean-centred for exactly this reason; procedural fields should
+    never have been the exception.
     """
-    std = field.flatten(1).std(dim=1, unbiased=False).clamp(min=1e-8)
-    return field / std.view(-1, *([1] * (field.ndim - 1)))
+    flat = field.flatten(1)
+    mean = flat.mean(dim=1).view(-1, *([1] * (field.ndim - 1)))
+    std = flat.std(dim=1, unbiased=False).clamp(min=1e-8).view(-1, *([1] * (field.ndim - 1)))
+    return (field - mean) / std
+
+
+#: How much of procedural grain is per-channel rather than shared luminance.
+#:
+#: Fully independent channels look like sensor noise, not film — put procedural
+#: grain next to a scanned plate at any visible amount and the difference is
+#: immediately obvious as colour speckle. Real emulsion grain is largely a
+#: luminance phenomenon: the three layers are physically separate but their
+#: densities track the same exposure, so the fields are strongly correlated.
+#: 0.2 keeps enough independence to avoid a flat monochrome overlay while
+#: reading as grain rather than as a noisy sensor. Chosen by putting procedural
+#: grain next to a plate at an exaggerated amount: at 1.0 the difference is
+#: glaring, at 0.2 they are hard to tell apart.
+DEFAULT_CHROMA = 0.2
 
 
 def procedural_field(
@@ -123,23 +146,32 @@ def procedural_field(
     seed: int,
     vary_per_frame: bool = False,
     device: torch.device | str = "cpu",
+    chroma: float = DEFAULT_CHROMA,
 ) -> torch.Tensor:
     """A signed, unit-variance grain field ``[B,H,W,3]``.
 
     ``size`` is the full width at half maximum of a grain cluster, in **output
     pixels**, independent of image resolution.
 
+    ``chroma`` blends between a single shared field across all three channels
+    (0, pure luminance grain) and three independent fields (1, colour speckle).
+    See :data:`DEFAULT_CHROMA`.
+
     Generated on the CPU regardless of the target device: CUDA's RNG does not
     produce the same stream as the CPU's, and a grain look that changes when you
     move machines is not a look.
     """
     sigma = sigma_for_size(size)
+    c = min(1.0, max(0.0, float(chroma)))
     out = []
     for b in range(batch):
         g = torch.Generator(device="cpu").manual_seed(int(seed) + (b if vary_per_frame else 0))
-        # Three independent channels. Real stock has partially decorrelated
-        # layers; per-channel amounts are how the user dials that in.
         noise = torch.randn(1, 3, height, width, generator=g, dtype=torch.float32)
+        if c < 1.0:
+            shared = noise.mean(dim=1, keepdim=True).expand(-1, 3, -1, -1)
+            noise = torch.lerp(shared, noise, c)
+        # Renormalise after mixing: averaging channels reduces variance, and
+        # `amount` has to mean the same thing at every chroma setting.
         out.append(_normalise(_blur_separable(noise, sigma)))
     return torch.cat(out, dim=0).permute(0, 2, 3, 1).contiguous().to(device)
 

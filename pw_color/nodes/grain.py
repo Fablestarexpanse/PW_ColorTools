@@ -14,7 +14,7 @@ from pathlib import Path
 import torch
 from comfy_api.latest import io
 
-from ..grain import GRAIN_BLEND_MODES, TonalResponse, apply_grain, plate_field, procedural_field
+from ..grain import DEFAULT_CHROMA, GRAIN_BLEND_MODES, TonalResponse, apply_grain, plate_field, procedural_field
 from ..grain import dither as apply_dither  # aliased: `dither` is also an input name
 from ..types import Look, LookOp
 
@@ -95,6 +95,19 @@ class PW_Grain(io.ComfyNode):
                     default=False,
                     tooltip="Offset the seed by batch index, so a batch is not identically grained.",
                 ),
+                io.Float.Input(
+                    "chroma",
+                    default=DEFAULT_CHROMA,
+                    min=0.0,
+                    max=1.0,
+                    step=0.05,
+                    optional=True,
+                    tooltip=(
+                        "How coloured procedural grain is. 0 is pure luminance grain; 1 is fully "
+                        "independent channels, which reads as digital sensor noise rather than "
+                        "film. Ignored when a plate is used."
+                    ),
+                ),
                 io.Combo.Input(
                     "plate",
                     options=list(plate_names()),
@@ -154,6 +167,7 @@ class PW_Grain(io.ComfyNode):
         opacity: float = 1.0,
         seed: int = 0,
         vary_per_frame: bool = False,
+        chroma: float = DEFAULT_CHROMA,
         plate: str = "none",
         plate_image: torch.Tensor | None = None,
         red: float = 1.0,
@@ -173,7 +187,7 @@ class PW_Grain(io.ComfyNode):
             field = plate_field(_load_plate(plate), b, h, w, seed, vary_per_frame)
             source = plate
         else:
-            field = procedural_field(b, h, w, size, seed, vary_per_frame, device=image.device)
+            field = procedural_field(b, h, w, size, seed, vary_per_frame, device=image.device, chroma=chroma)
 
         out = image
         if amount > 0.0 and opacity > 0.0:

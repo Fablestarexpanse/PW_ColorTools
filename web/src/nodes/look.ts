@@ -13,9 +13,11 @@
 
 import { app, chainHandler, getWidget, type NodeLike } from '../comfy.ts';
 import { BADGE, PW } from '../theme.ts';
+import { Preview } from '../canvas/preview.ts';
 import { Lattice, DEFAULT_SIZE } from '../core/lattice.ts';
 import { buildSampleFn } from '../core/ops.ts';
 import { HSL_BANDS } from '../core/look_ops.ts';
+import { isComparing, onCompareChange } from '../widgets/compare.ts';
 import { fillPanel, hit, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
 import { fitPanel, widgetHeight } from '../widgets/layout.ts';
 import { Segmented } from '../widgets/segmented.ts';
@@ -25,6 +27,7 @@ const THUMB_H = 74;
 const THUMB_W = 96;
 const HSL_ROW_H = 22;
 const HEADER_H = 18;
+const PREVIEW_H = 150;
 
 interface Preset { id: string; name: string; description: string; params: Record<string, any> }
 
@@ -35,6 +38,42 @@ interface LookUI {
   source: ImageData | null;
   hslOpen: boolean;
   hslTab: Segmented;
+  preview: Preview;
+}
+
+/** Rebuild the lattice the live preview samples from the node's current state. */
+function refreshPreview(node: NodeLike): void {
+  const ui = uis.get(node);
+  if (!ui) return;
+  const num = (name: string, d: number) => {
+    const v = getWidget(node, name)?.value;
+    return typeof v === 'number' ? v : d;
+  };
+  let bands: Record<string, any> = {};
+  try {
+    bands = JSON.parse(String(getWidget(node, 'hsl')?.value ?? '{}'));
+  } catch { /* keep empty */ }
+
+  const ops = [
+    {
+      type: 'tone',
+      params: {
+        exposure: num('exposure', 0), contrast: num('contrast', 0),
+        highlights: num('highlights', 0), shadows: num('shadows', 0),
+        whites: num('whites', 0), blacks: num('blacks', 0),
+      },
+    },
+    {
+      type: 'colour',
+      params: {
+        warmth: num('warmth', 0), tint: num('tint', 0),
+        vibrance: num('vibrance', 0), saturation: num('saturation', 1),
+      },
+    },
+    { type: 'hsl', params: { bands } },
+  ];
+  ui.preview.lattice = Lattice.fromFn(buildSampleFn(ops) as any, DEFAULT_SIZE);
+  ui.preview.digest = JSON.stringify(ops);
 }
 
 const uis = new WeakMap<object, LookUI>();
@@ -53,6 +92,57 @@ async function loadPresets(): Promise<Preset[]> {
     presetCache = [];
   }
   return presetCache!;
+}
+
+/** Slider names a preset can set, and the value each returns to when it does not. */
+const PRESET_SLIDERS: Record<string, number> = {
+  exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
+  warmth: 0, tint: 0, vibrance: 0, saturation: 1,
+  glow: 0, glow_radius: 24, glow_threshold: 0.65,
+  gradient_map: 0,
+};
+
+/**
+ * Apply a preset by writing its values into the widgets.
+ *
+ * "Presets lead, sliders follow" means exactly this: after clicking a preset
+ * the sliders must show what it did, so the next move is an adjustment rather
+ * than a guess. Setting only the preset combo left every slider reading 0.00
+ * while the image was clearly graded, which is a UI that lies.
+ *
+ * Sliders the preset does not mention are reset to neutral, so switching from
+ * a heavy preset to a light one does not silently keep the heavy one's values.
+ */
+function applyPreset(node: NodeLike, preset: Preset): void {
+  const combo = getWidget(node, 'preset');
+  if (combo) {
+    combo.value = preset.id;
+    combo.callback?.(combo.value);
+  }
+  if (preset.id !== 'none') {
+    for (const [name, neutral] of Object.entries(PRESET_SLIDERS)) {
+      const w = getWidget(node, name);
+      if (!w) continue;
+      const key = name === 'gradient_map' ? 'gradient_map_amount' : name;
+      const next = typeof preset.params[key] === 'number' ? preset.params[key] : neutral;
+      if (w.value !== next) {
+        w.value = next;
+        w.callback?.(w.value);
+      }
+    }
+    const blend = getWidget(node, 'gradient_blend');
+    if (blend && preset.params.gradient_map_blend) {
+      blend.value = preset.params.gradient_map_blend;
+      blend.callback?.(blend.value);
+    }
+    const hsl = getWidget(node, 'hsl');
+    if (hsl) {
+      hsl.value = JSON.stringify(preset.params.hsl ?? {});
+      hsl.callback?.(hsl.value);
+    }
+  }
+  refreshPreview(node);
+  node.setDirtyCanvas?.(true, true);
 }
 
 /** Map a preset's flat params onto the LOOK ops the lattice understands. */
@@ -226,6 +316,10 @@ function layout(node: NodeLike, ui: LookUI) {
   const w = node.size[0] - M.padding * 2;
   const { rows } = gridShape(w, Math.max(1, ui.presets.length));
   let y = widgetHeight(node) + M.gapSection;
+  const previewHeader = { x, y, w, h: HEADER_H };
+  y += HEADER_H + 6;
+  const preview = { x, y, w, h: PREVIEW_H };
+  y += PREVIEW_H + M.gapSection;
   const presetHeader = { x, y, w, h: HEADER_H };
   y += HEADER_H + 6;
   const strip = { x, y, w, h: rows * CELL_H + (rows - 1) * 6 };
@@ -234,14 +328,15 @@ function layout(node: NodeLike, ui: LookUI) {
   y += HEADER_H + 6;
   const hslTabs = { x, y, w: Math.min(w, 220), h: 22 };
   const hslRows = { x, y: y + 26, w, h: HSL_BANDS.length * HSL_ROW_H };
-  return { presetHeader, strip, hslHeader, hslTabs, hslRows };
+  return { previewHeader, preview, presetHeader, strip, hslHeader, hslTabs, hslRows };
 }
 
 function panelHeight(node: NodeLike, ui: LookUI): number {
   const w = Math.max(200, node.size[0] - M.padding * 2);
   const { rows } = gridShape(w, Math.max(1, ui.presets.length));
   const strip = rows * CELL_H + (rows - 1) * 6;
-  const base = HEADER_H + 6 + strip + M.gapSection + HEADER_H + 6 + M.padding;
+  const base =
+    HEADER_H + 6 + PREVIEW_H + M.gapSection + HEADER_H + 6 + strip + M.gapSection + HEADER_H + 6 + M.padding;
   return base + (ui.hslOpen ? 26 + HSL_BANDS.length * HSL_ROW_H + M.gapControl : 0);
 }
 
@@ -262,9 +357,11 @@ export function registerLook(): void {
         const ui: LookUI = {
           presets: [], thumbs: new Map(), source: null, hslOpen: false,
           hslTab: new Segmented(HSL_AXES.map((a) => ({ id: a, label: a }))),
+          preview: new Preview(),
         };
         uis.set(this, ui);
         fitPanel(this, panelHeight(this, ui), 420);
+        refreshPreview(this);
 
         void (async () => {
           ui.presets = await loadPresets();
@@ -272,8 +369,16 @@ export function registerLook(): void {
           // and they arrive over HTTP after the node has already been sized.
           fitPanel(this, panelHeight(this, ui), 420);
           await loadSource(this, ui);
+          await ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
           this.setDirtyCanvas?.(true, true);
         })();
+
+        const unsubscribe = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const priorRemoved = this.onRemoved;
+        this.onRemoved = function (this: NodeLike) {
+          unsubscribe();
+          priorRemoved?.call(this);
+        };
 
         // Resizing changes how many thumbnails fit per row, so the panel
         // height has to follow the width.
@@ -286,6 +391,10 @@ export function registerLook(): void {
         chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
           if ((this as any).flags?.collapsed) return;
           const L = layout(this, ui);
+
+          sectionHeader(ctx, 'Preview', L.previewHeader, BADGE.lut);
+          ui.preview.comparing = isComparing();
+          ui.preview.draw(ctx, L.preview);
 
           sectionHeader(ctx, 'Presets, on your image', L.presetHeader, BADGE.lut);
           drawStrip(ctx, L.strip, this, ui);
@@ -302,6 +411,12 @@ export function registerLook(): void {
           const L = layout(this, ui);
           const [x, y] = pos;
 
+          if (hit(L.preview, x, y)) {
+            ui.preview.onPointer(x, L.preview, true);
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+
           if (hit(L.hslHeader, x, y)) {
             ui.hslOpen = !ui.hslOpen;
             fitPanel(this, panelHeight(this, ui), 420);
@@ -314,11 +429,7 @@ export function registerLook(): void {
             const col = Math.floor((x - L.strip.x) / (cellW + 8));
             const row = Math.floor((y - L.strip.y) / (CELL_H + 6));
             const preset = col >= 0 && col < cols ? ui.presets[row * cols + col] : undefined;
-            if (preset) {
-              const w = getWidget(this, 'preset');
-              if (w) { w.value = preset.id; w.callback?.(w.value); }
-              this.setDirtyCanvas?.(true, true);
-            }
+            if (preset) applyPreset(this, preset);
             return true;
           }
 
@@ -334,6 +445,7 @@ export function registerLook(): void {
               // Double-click resets the axis, matching every other control.
               (bands as any)[name][ui.hslTab.selected] = e?.detail === 2 ? 0 : Math.round(v * 100) / 100;
               writeHsl(this, bands);
+              refreshPreview(this);
               return true;
             }
           }
@@ -348,7 +460,19 @@ export function registerLook(): void {
       nodeType.prototype.onExecuted = function (this: NodeLike) {
         const res = onExecuted?.apply(this, arguments as any);
         const ui = uis.get(this);
-        if (ui) void loadSource(this, ui);
+        if (ui) {
+          void loadSource(this, ui);
+          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+        }
+        return res;
+      };
+
+      // Any widget change reshapes the grade, so the preview must follow.
+      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
+      nodeType.prototype.onWidgetChanged = function (this: NodeLike) {
+        const res = onWidgetChanged?.apply(this, arguments as any);
+        refreshPreview(this);
+        this.setDirtyCanvas?.(true, true);
         return res;
       };
     },

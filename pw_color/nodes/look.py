@@ -30,7 +30,7 @@ from ..blend import BLEND_MODES, composite
 from ..glow import apply_glow
 from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from ..look import HSL_BANDS, ramp_from_palette
-from ..match import match_mean_std
+from ..match import MATCH_TIERS, match_least_squares, match_mean_std
 from ..ops import build_sample_fn
 from ..types import Look, LookOp, Palette
 
@@ -135,6 +135,19 @@ class PW_Look(io.ComfyNode):
                 io.Image.Input("reference", optional=True, tooltip="Match this image's colour before grading."),
                 io.Float.Input("reference_strength", default=1.0, min=0.0, max=1.0, step=0.01, optional=True),
                 io.Combo.Input(
+                    "reference_mode",
+                    options=list(MATCH_TIERS),
+                    default="mean_std",
+                    optional=True,
+                    tooltip=(
+                        "mean_std matches each channel's average and contrast: predictable, and "
+                        "enough for most references. least_squares fits a tone curve plus a full "
+                        "3x3 matrix, so it can reproduce cross-channel looks like teal shadows "
+                        "against neutral highlights, at the cost of being able to overfit when "
+                        "the two images have very different content."
+                    ),
+                ),
+                io.Combo.Input(
                     "quality",
                     options=["high", "fast"],
                     default="high",
@@ -181,11 +194,15 @@ class PW_Look(io.ComfyNode):
         reference = kw.get("reference")
         ref_strength = float(kw.get("reference_strength", 1.0))
         if reference is not None and ref_strength > 0.0:
-            out = match_mean_std(out, reference, mask=None, strength=ref_strength, space="oklab")
+            mode = kw.get("reference_mode", "mean_std")
+            if mode == "least_squares":
+                out = match_least_squares(out, reference, mask=None, strength=ref_strength)
+            else:
+                out = match_mean_std(out, reference, mask=None, strength=ref_strength, space="oklab")
             ops.append(
                 LookOp(
                     type="reference_match",
-                    params={"space": "oklab"},
+                    params={"space": "oklab", "mode": mode},
                     strength=ref_strength,
                     lut_safe=False,  # depends on this specific pair of images
                 )

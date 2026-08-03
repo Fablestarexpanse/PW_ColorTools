@@ -1,7 +1,28 @@
 # Grain plates
 
-Drop scanned grain plates here as PNG, JPEG, TIFF or WebP. They appear in the
-`plate` dropdown on PW Grain after a ComfyUI restart, the same contract as
+Three plates ship here. **They are generated, not scanned** — we are not going
+to pass off synthetic noise as a drum scan, and you should know what you are
+using.
+
+| Plate | Character |
+|---|---|
+| `plate-fine.png` | Tight, low-contrast grain. Digital captures, clean stock. |
+| `plate-medium.png` | The general-purpose one. |
+| `plate-coarse.png` | Heavy clumping. Pushed stock, high ISO looks. |
+
+What they add over the procedural mode is **clumping**. Real grain clusters;
+the procedural path generates an even field by construction. These are built
+from multi-octave noise with a contrast curve and slight vertical anisotropy,
+which gets the clustered character that reads as emulsion.
+
+They are 640×640 and mirror-tile to fill any frame. That is a deliberate size
+compromise — noise does not compress, and a 1024px set was 7 MB in the
+repository for something the procedural mode approximates well.
+
+## Adding your own
+
+Drop scanned plates in this folder as PNG, JPEG, TIFF or WebP. They appear in
+the `plate` dropdown on PW Grain after a ComfyUI restart, the same contract as
 adding a checkpoint.
 
 What makes a good plate:

@@ -115,6 +115,11 @@ export class Slider {
     });
   }
 
+  /** Hit region for the numeric readout, so it can be clicked to type. */
+  valueRect(r: Rect): Rect {
+    return { x: r.x + r.w - VALUE_W, y: r.y, w: VALUE_W, h: r.h };
+  }
+
   /** @returns true if the event was consumed. */
   onPointerDown(x: number, y: number, r: Rect, now: number): boolean {
     const track = this.trackRect(r);

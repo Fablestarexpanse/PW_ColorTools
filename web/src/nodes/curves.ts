@@ -12,10 +12,15 @@
 import { app, chainHandler, getWidget, type NodeLike } from '../comfy.ts';
 import { PW } from '../theme.ts';
 import { CurveEditor, identityState, type ChannelId, type CurveEditorState } from '../canvas/curve_editor.ts';
+import { Preview } from '../canvas/preview.ts';
+import { Lattice, DEFAULT_SIZE } from '../core/lattice.ts';
+import { buildSampleFn } from '../core/ops.ts';
+import { isComparing, onCompareChange } from '../widgets/compare.ts';
+import { openNumericEntry } from '../widgets/numeric_entry.ts';
 import { Segmented } from '../widgets/segmented.ts';
 import { Slider } from '../widgets/slider.ts';
 import { BADGE } from '../theme.ts';
-import { sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
+import { hit, sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
 import { fitPanel, widgetHeight } from '../widgets/layout.ts';
 
 const M = PW.metrics;
@@ -23,6 +28,7 @@ const HEADER_H = 18;
 const TABS_H = M.controlHeight;
 const ROW_H = M.controlHeight;
 const MIN_EDITOR_H = 160;
+const PREVIEW_H = 140;
 
 const CHANNEL_TABS = [
   { id: 'luma', label: 'Luma', colour: PW.channel.luma },
@@ -35,7 +41,16 @@ interface CurvesUI {
   editor: CurveEditor;
   tabs: Segmented;
   strength: Slider;
-  layout: (node: NodeLike) => { tabs: Rect; editor: Rect; strength: Rect; header: Rect };
+  preview: Preview;
+  layout: (node: NodeLike) => {
+    header: Rect;
+    preview: Rect;
+    tabs: Rect;
+    editor: Rect;
+    strength: Rect;
+  };
+  /** Re-bake the lattice the preview samples. Cheap enough to run per edit. */
+  rebake: (node: NodeLike) => void;
 }
 
 const uis = new WeakMap<object, CurvesUI>();
@@ -105,17 +120,40 @@ function makeUI(node: NodeLike): CurvesUI {
     let y = widgetHeight(n) + M.gapSection;
     const header = { x, y, w, h: HEADER_H };
     y += HEADER_H + 4;
+    const previewR = { x, y, w, h: PREVIEW_H };
+    y += PREVIEW_H + M.gapControl;
     const tabsR = { x, y, w, h: TABS_H };
     y += TABS_H + M.gapControl;
     const editorH = Math.max(MIN_EDITOR_H, n.size[1] - y - ROW_H - M.gapSection - M.padding);
     const editorR = { x, y, w, h: editorH };
     y += editorH + M.gapControl;
-    return { header, tabs: tabsR, editor: editorR, strength: { x, y, w, h: ROW_H } };
+    return { header, preview: previewR, tabs: tabsR, editor: editorR, strength: { x, y, w, h: ROW_H } };
   };
 
-  const ui: CurvesUI = { editor, tabs, strength, layout };
+  const preview = new Preview();
+
+  const rebake = (n: NodeLike) => {
+    // The preview samples the same lattice the renderer will build from the
+    // same control points, so what is on screen is what will be rendered.
+    const op = {
+      type: 'curves',
+      params: {
+        ...editor.state,
+        preserve_hue: getWidget(n, 'preserve_hue')?.value !== false,
+      },
+      strength: typeof getWidget(n, 'strength')?.value === 'number' ? getWidget(n, 'strength')!.value : 1,
+    };
+    preview.lattice = Lattice.fromFn(buildSampleFn([op]) as any, DEFAULT_SIZE);
+    preview.digest = JSON.stringify([op.params, op.strength]);
+  };
+
+  const ui: CurvesUI = { editor, tabs, strength, preview, layout, rebake };
   editor.state = readState(node);
-  editor.onChange = () => writeState(node, ui);
+  editor.onChange = () => {
+    writeState(node, ui);
+    rebake(node);
+  };
+  rebake(node);
   return ui;
 }
 
@@ -144,12 +182,28 @@ export function registerCurves(): void {
 
         // Widget height from LiteGraph, editor height from us. The editor gets
         // a generous default because a curve you cannot see is not editable.
-        fitPanel(this, HEADER_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.padding, 360);
+        fitPanel(
+          this,
+          HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding,
+          360,
+        );
+
+        void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+        // A global key listener, so holding the compare key redraws every
+        // PW node at once rather than only the one under the cursor.
+        const unsubscribe = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const priorRemoved = this.onRemoved;
+        this.onRemoved = function (this: NodeLike) {
+          unsubscribe();
+          priorRemoved?.call(this);
+        };
 
         chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
           if ((this as any).flags?.collapsed) return;
           const L = ui.layout(this);
           sectionHeader(ctx, 'Curves', L.header, BADGE.lut);
+          ui.preview.comparing = isComparing();
+          ui.preview.draw(ctx, L.preview);
           ui.tabs.draw(ctx, L.tabs);
           ui.editor.draw(ctx, L.editor);
           ui.strength.draw(ctx, L.strength);
@@ -167,8 +221,29 @@ export function registerCurves(): void {
             this.setDirtyCanvas?.(true, true);
             return true;
           }
+          // Click the readout to type an exact value.
+          if (hit(ui.strength.valueRect(L.strength), x, y)) {
+            openNumericEntry(this, ui.strength.valueRect(L.strength), {
+              value: ui.strength.value,
+              min: ui.strength.spec.min,
+              max: ui.strength.spec.max,
+              decimals: ui.strength.spec.decimals,
+              onCommit: (v) => {
+                ui.strength.value = v;
+                syncStrength(this, ui);
+                ui.rebake(this);
+              },
+            });
+            return true;
+          }
           if (ui.strength.onPointerDown(x, y, L.strength, now)) {
             syncStrength(this, ui);
+            ui.rebake(this);
+            return true;
+          }
+          if (hit(L.preview, x, y)) {
+            ui.preview.onPointer(x, L.preview, true);
+            this.setDirtyCanvas?.(true, true);
             return true;
           }
           if (
@@ -189,6 +264,7 @@ export function registerCurves(): void {
           const shift = !!e?.shiftKey;
           if (ui.strength.onPointerMove(pos[0], pos[1], L.strength, shift)) {
             syncStrength(this, ui);
+            ui.rebake(this);
             return true;
           }
           if (ui.editor.onPointerMove(pos[0], pos[1], L.editor, shift)) {
@@ -219,7 +295,9 @@ export function registerCurves(): void {
           ui.editor.state = readState(this);
           const sw = getWidget(this, 'strength');
           if (typeof sw?.value === 'number') ui.strength.value = sw.value;
+          ui.rebake(this);
           void loadHistogram(this, ui);
+          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
         }
         return r;
       };

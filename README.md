@@ -17,10 +17,19 @@ The existing options are either one node per operation, or enormous film-science
 suites. Neither offers a clean interactive UI over a coherent data model. Our
 differentiator is **interaction quality and correctness**, not feature count.
 
-**Preview and render are the same pixels.** Per-pixel operations are baked into
-a 3D LUT lattice that both the browser and the renderer sample. Not two
-implementations of the same maths hoping to agree — byte-identical lattices,
-verified in CI on every commit. `.cube` export falls out for free.
+**A live preview that matches the render.** Per-pixel operations bake into a 3D
+LUT lattice that both the browser and the renderer sample. The preview is a
+WebGL shader doing the same hand-written trilinear interpolation as the torch
+code — hardware texture filtering is deliberately not used, because its
+precision is not something we can pin across GPUs.
+
+Measured, not claimed: the lattices are **byte-identical** between TypeScript
+and torch, the CPU samplers agree **exactly at 8-bit**, and the shipped shader
+lands **within one code value at 8-bit** (mean 0.03 over 12k pixels) against
+the reference. `.cube` export falls out of the same lattice for free.
+
+**Hold Alt to compare** against the input, on any node with a preview, and drag
+across the preview to set a wipe.
 
 **Curves that cannot overshoot.** Monotone cubic interpolation
 (Fritsch–Carlson), so no arrangement of control points can produce a ringing
@@ -70,7 +79,13 @@ lightness and takes only hue and chroma from the ramp, which is what makes it a
 grading tool rather than a poster filter.
 
 An optional `MASK` restricts the whole grade to a region (white is graded), and
-an optional `reference` image is matched in OKLab before any creative decision.
+an optional `reference` image is matched before any creative decision. Two
+tiers: `mean_std` matches each channel's average and contrast, which is
+predictable and enough for most references; `least_squares` fits a tone curve
+plus a full 3×3 matrix in OKLab, so it can reproduce cross-channel looks — teal
+shadows against neutral highlights — that per-channel statistics provably
+cannot. The matrix is fitted on each image's *distribution*, not on pixel
+correspondence, so the reference can be a different scene at a different size.
 
 Everything above bakes into one lattice. **Glow is the exception** — it blurs,
 so it cannot be baked, and the moment it is above zero the node's LOOK is no
@@ -110,10 +125,16 @@ of it; a test pins the two implementations together.
 is generated at output resolution and never scaled, so a look keeps matching
 itself across resolutions.
 
-Procedural or plate-based. Plates are **mean-centred** into a signed deviation
-field, so a plate's own exposure never shifts your image, and **cropped, never
+Procedural or plate-based; three plates ship, clearly labelled as generated
+rather than scanned. Plates are **mean-centred** into a signed deviation field,
+so a plate's own exposure never shifts your image, and **cropped, never
 resized**, so grain size stays absolute. Per-channel amounts default the blue
 channel slightly hotter, matching real stock.
+
+A `chroma` control sets how coloured procedural grain is. It defaults low,
+because fully independent channels read as digital sensor noise rather than
+film — put the two side by side at any visible amount and the difference is
+immediate.
 
 An **always-on dither floor** adds sub-LSB noise before 8-bit quantisation, even
 at zero grain. It costs a fraction of a code value and removes banding from
@@ -379,20 +400,9 @@ not, and which approaches were measured and rejected.
 
 ## Not built yet
 
-Honest about what is missing, so nobody installs this expecting it:
-
-- **A live image preview.** The lattice architecture exists so that a preview
-  can be exact, and the parity is proven in CI — but the WebGL preview surface
-  itself is not built. PW Curves shows a histogram, not your image; PW Look
-  shows preset thumbnails, not a live result as you drag a slider.
-- **Hold-to-compare** against a node's input.
-- **Click a numeric readout to type a value.** Drag and shift-drag work;
-  typing does not.
-- **Hue-range tabs** on PW Curves.
-- **Shipped grain plates.** The plate machinery works and takes any image;
-  there just are not any in `grain/` yet.
-- **Reference matching tier two** — a least-squares tone curve plus 3×3 matrix.
-  Tier one, mean/std matching in OKLab, is what ships.
+- **Hue-range tabs on PW Curves.** Deliberately not built: PW Look's eight-band
+  colour mixer already covers hue-selective adjustment, and a second way to do
+  the same thing in a different node is how a pack starts feeling incoherent.
 
 ## Not in scope
 

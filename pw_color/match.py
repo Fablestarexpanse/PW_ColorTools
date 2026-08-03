@@ -20,7 +20,19 @@ import torch
 
 from . import colour
 
-__all__ = ["MatchStats", "channel_stats", "match_mean_std", "MATCH_SPACES"]
+__all__ = ["MatchStats", "channel_stats", "match_mean_std", "match_least_squares", "MATCH_SPACES", "MATCH_TIERS"]
+
+#: Reference-matching strategies, simplest first.
+#:
+#: ``mean_std`` matches each channel's first two moments independently. It
+#: cannot express cross-channel behaviour — if the reference turns shadows teal
+#: while leaving highlights neutral, a per-channel gain cannot reproduce that.
+#:
+#: ``least_squares`` fits a tone curve plus a full 3x3 matrix, so it *can*.
+#: The cost is that it can fail in ways a user cannot predict: fitted on two
+#: images with different content it will happily learn the difference in
+#: content rather than the difference in grade.
+MATCH_TIERS = ("mean_std", "least_squares")
 
 #: Spaces we can match in. ``oklab`` is the default because a mean/std match on
 #: sRGB-encoded values is a match on an arbitrary nonlinearity: the same drift
@@ -152,6 +164,156 @@ def match_mean_std(
     if s < 1.0:
         out = torch.lerp(proc_rgb, out, s)
     out = out.clamp(0.0, 1.0)
+
+    if processed.shape[-1] == 4:
+        return torch.cat((out, processed[..., 3:]), dim=-1)
+    return out
+
+
+def _sorted_quantiles(values: torch.Tensor, weights: torch.Tensor, n: int) -> torch.Tensor:
+    """``n`` evenly spaced weighted quantiles of a 1-D tensor."""
+    order = torch.argsort(values)
+    v, w = values[order], weights[order]
+    cum = torch.cumsum(w, dim=0)
+    total = cum[-1].clamp(min=1e-9)
+    targets = torch.linspace(0.0, 1.0, n, dtype=values.dtype, device=values.device) * total
+    idx = torch.searchsorted(cum.contiguous(), targets.contiguous()).clamp(0, v.numel() - 1)
+    return v[idx]
+
+
+def match_least_squares(
+    processed: torch.Tensor,
+    reference: torch.Tensor,
+    mask: torch.Tensor | None = None,
+    strength: float = 1.0,
+    matrix_strength: float = 1.0,
+    max_gain: float = 4.0,
+) -> torch.Tensor:
+    """Tier two: a tone curve plus a 3x3 matrix, fitted by least squares.
+
+    Two stages, in this order for a reason:
+
+    1. **Tone.** Match the luminance distribution by histogram-matching a
+       monotone set of quantiles. This absorbs the overall contrast difference
+       so that the matrix does not have to express it as a scale, which it
+       cannot do without also shifting hue.
+    2. **Colour.** Solve for the 3x3 that best maps the tone-matched image onto
+       the reference in OKLab. A full matrix is what lets this express
+       cross-channel behaviour — teal shadows against neutral highlights — that
+       per-channel mean/std matching provably cannot.
+
+    Fitted on *statistics*, not on pixel correspondence: the two images do not
+    need to be the same scene, and are usually not. The matrix is solved with a
+    small ridge term because two images with a narrow palette give a nearly
+    singular system, and an unregularised solve there produces a matrix that
+    looks fine on the fit and explodes on anything else.
+
+    ``mask`` selects which pixels of ``processed`` the fit learns from — white
+    excludes, matching the inpaint convention used by :func:`match_mean_std`.
+    The resulting correction is applied to the whole frame regardless. Fitting
+    on a region and applying everywhere only improves everything if the region
+    was representative, and judging that is the user's call.
+    """
+    if processed.shape[-1] < 3 or reference.shape[-1] < 3:
+        raise ValueError("match_least_squares needs RGB images")
+
+    proc_rgb = processed[..., :3]
+    dtype = proc_rgb.dtype
+    p = proc_rgb.reshape(-1, 3).to(torch.float32)
+    r = reference[..., :3].reshape(-1, 3).to(torch.float32)
+
+    if mask is not None:
+        w = (1.0 - mask.clamp(0.0, 1.0)).to(torch.float32).reshape(-1)
+        if w.numel() != p.shape[0]:
+            raise ValueError(f"mask has {w.numel()} pixels but the image has {p.shape[0]}")
+    else:
+        w = torch.ones(p.shape[0], dtype=torch.float32)
+
+    # A mask is only meaningful across two images when they are the same scene,
+    # and matching shapes is the only signal available for that. When they
+    # match, weight both sides — otherwise the fit maps a masked region of one
+    # image onto the *whole* of the other, which is worse than not masking.
+    # When they differ the reference is a separate photograph and its whole
+    # distribution is the thing being matched to.
+    rw = w if r.shape[0] == p.shape[0] else torch.ones(r.shape[0], dtype=torch.float32)
+
+    if float(w.sum()) < 8.0 or float(rw.sum()) < 8.0:
+        return processed  # nothing to learn from
+
+    # -- 1. tone ---------------------------------------------------------
+    n = 64
+    p_lin, r_lin = colour.srgb_to_linear(p), colour.srgb_to_linear(r)
+    p_lum, r_lum = colour.luma_bt709(p_lin), colour.luma_bt709(r_lin)
+    src = _sorted_quantiles(p_lum, w, n)
+    dst = _sorted_quantiles(r_lum, rw, n)
+
+    # Force monotonicity: quantiles are sorted, so this only guards against
+    # ties producing a flat-then-backward step after interpolation.
+    dst = torch.cummax(dst, dim=0).values
+
+    idx = torch.searchsorted(src.contiguous(), p_lum.contiguous().clamp(src[0], src[-1])).clamp(1, n - 1)
+    lo, hi = src[idx - 1], src[idx]
+    t = ((p_lum - lo) / (hi - lo).clamp(min=1e-9)).clamp(0.0, 1.0)
+    mapped_lum = torch.lerp(dst[idx - 1], dst[idx], t)
+
+    gain = (mapped_lum / p_lum.clamp(min=1e-5)).clamp(1.0 / max_gain, max_gain)
+    toned = colour.linear_to_srgb(p_lin * gain.unsqueeze(-1))
+
+    # -- 2. colour -------------------------------------------------------
+    if matrix_strength > 0.0:
+        a = colour.srgb_to_oklab(toned)
+        b = colour.srgb_to_oklab(r)
+        sw, rwv = w.unsqueeze(-1), rw.unsqueeze(-1)
+        mass = w.sum().clamp(min=1e-9)
+        rmass = rw.sum().clamp(min=1e-9)
+        a_mean = (a * sw).sum(0) / mass
+        b_mean = (b * rwv).sum(0) / rmass
+        ac, bc = a - a_mean, b - b_mean
+
+        # Match the two *distributions*, via their covariances. Emphatically
+        # not a cross-covariance between the two images: that would pair pixel
+        # i of one with pixel i of the other, which is only meaningful if they
+        # are the same scene. A reference is usually a different photograph
+        # entirely, so the fit has to come from the shape of each distribution
+        # on its own.
+        #
+        # Whitening the source and re-colouring it with the reference's
+        # Cholesky factor is the standard construction, and it is what makes
+        # cross-channel looks reproducible: a split-tone shows up as covariance
+        # between OKLab L and b, and a full 3x3 carries that where per-channel
+        # statistics cannot.
+        caa = (ac * sw).T @ ac / mass
+        cbb = (bc * rwv).T @ bc / rmass
+        eye = torch.eye(3, dtype=caa.dtype, device=caa.device)
+        ridge_a = eye * (float(caa.diagonal().mean()) * 1e-4 + 1e-9)
+        ridge_b = eye * (float(cbb.diagonal().mean()) * 1e-4 + 1e-9)
+        try:
+            ls = torch.linalg.cholesky(caa + ridge_a)
+            lt = torch.linalg.cholesky(cbb + ridge_b)
+            # Row vectors, so y = ac @ M with M = inv(Ls)^T @ Lt^T. Solving
+            # Ls^T X = Lt^T gives exactly that; note this is a left-solve
+            # against the transpose, not a right-solve against Ls.
+            m = torch.linalg.solve_triangular(ls.transpose(-1, -2), lt.transpose(-1, -2), upper=True, left=True)
+        except Exception:
+            # A degenerate palette (a flat frame) has no covariance to match.
+            # Falling back to the identity leaves the tone match in place,
+            # which is strictly better than an exploded matrix.
+            m = eye
+
+        # Bound the gain: a near-singular source blown up to a wide reference
+        # produces a technically-correct matrix that destroys the image.
+        scale = float(torch.linalg.matrix_norm(m, ord=2))
+        if scale > max_gain:
+            m = m * (max_gain / scale)
+
+        fitted = torch.lerp(a, ac @ m + b_mean, float(matrix_strength))
+        toned = colour.oklab_to_srgb(fitted)
+
+    out = toned.reshape(proc_rgb.shape)
+    s = float(strength)
+    if s < 1.0:
+        out = torch.lerp(proc_rgb.to(torch.float32), out, s)
+    out = out.clamp(0.0, 1.0).to(dtype)
 
     if processed.shape[-1] == 4:
         return torch.cat((out, processed[..., 3:]), dim=-1)

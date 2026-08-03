@@ -417,10 +417,10 @@ var CurveEditor = class {
     const colour = CHANNEL_COLOUR[this.channel];
     this.points.forEach((p, i) => {
       const [x, y] = this.toCanvas(r, p);
-      const active = i === this.dragIndex || i === this.hoverIndex;
+      const active2 = i === this.dragIndex || i === this.hoverIndex;
       ctx.beginPath();
-      ctx.arc(x, y, active ? POINT_RADIUS + 1.5 : POINT_RADIUS, 0, Math.PI * 2);
-      ctx.fillStyle = active ? PW.color.text : PW.color.panel;
+      ctx.arc(x, y, active2 ? POINT_RADIUS + 1.5 : POINT_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = active2 ? PW.color.text : PW.color.panel;
       ctx.fill();
       ctx.strokeStyle = colour;
       ctx.lineWidth = 1.5;
@@ -547,432 +547,6 @@ var CurveEditor = class {
 };
 function clamp012(v) {
   return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-
-// src/widgets/segmented.ts
-var Segmented = class {
-  segments;
-  selected;
-  constructor(segments, selected) {
-    if (segments.length === 0) throw new Error("Segmented needs at least one segment");
-    this.segments = segments;
-    this.selected = selected ?? segments[0].id;
-  }
-  cellRects(r) {
-    const gap = 4;
-    const w = (r.w - gap * (this.segments.length - 1)) / this.segments.length;
-    return this.segments.map((_, i) => ({ x: r.x + i * (w + gap), y: r.y, w, h: r.h }));
-  }
-  draw(ctx, r) {
-    const cells = this.cellRects(r);
-    this.segments.forEach((seg, i) => {
-      const active = seg.id === this.selected;
-      const cell = cells[i];
-      fillPanel(
-        ctx,
-        cell,
-        active ? PW.color.chipActive : PW.color.chip,
-        PW.metrics.radiusControl,
-        active ? PW.color.border : PW.color.borderSoft
-      );
-      text(ctx, seg.label, cell.x + cell.w / 2, cell.y + cell.h / 2, {
-        colour: active ? seg.colour ?? PW.color.text : PW.color.textMute,
-        align: "center"
-      });
-      if (active && seg.colour) {
-        ctx.fillStyle = seg.colour;
-        ctx.fillRect(cell.x + 6, cell.y + cell.h - 3, cell.w - 12, 2);
-      }
-    });
-  }
-  /** @returns the id that was clicked, or null. */
-  onPointerDown(x, y, r) {
-    const cells = this.cellRects(r);
-    for (let i = 0; i < cells.length; i++) {
-      const c = cells[i];
-      if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) {
-        this.selected = this.segments[i].id;
-        return this.selected;
-      }
-    }
-    return null;
-  }
-};
-
-// src/widgets/slider.ts
-var LABEL_W = 86;
-var VALUE_W = 52;
-var Slider = class {
-  spec;
-  value;
-  dragging = false;
-  dragStartX = 0;
-  dragStartValue = 0;
-  lastClick = 0;
-  constructor(spec, value) {
-    const neutral = spec.neutral ?? spec.min;
-    this.spec = {
-      label: spec.label,
-      min: spec.min,
-      max: spec.max,
-      neutral,
-      default: spec.default ?? neutral,
-      step: spec.step ?? 0.01,
-      decimals: spec.decimals ?? 2,
-      unit: spec.unit ?? ""
-    };
-    this.value = value ?? this.spec.default;
-  }
-  trackRect(r) {
-    const x = r.x + LABEL_W;
-    return { x, y: r.y + r.h / 2 - 3, w: r.w - LABEL_W - VALUE_W - PW.metrics.gapControl, h: 6 };
-  }
-  toValue(px, track) {
-    const t = Math.min(1, Math.max(0, (px - track.x) / track.w));
-    return this.spec.min + t * (this.spec.max - this.spec.min);
-  }
-  toPixel(v, track) {
-    const t = (v - this.spec.min) / (this.spec.max - this.spec.min);
-    return track.x + Math.min(1, Math.max(0, t)) * track.w;
-  }
-  quantise(v) {
-    const { min, max, step } = this.spec;
-    const snapped = Math.round(v / step) * step;
-    return Math.min(max, Math.max(min, snapped));
-  }
-  draw(ctx, r) {
-    const track = this.trackRect(r);
-    const { neutral } = this.spec;
-    text(ctx, this.spec.label, r.x, r.y + r.h / 2, { colour: PW.color.textDim });
-    fillPanel(ctx, track, PW.color.well, 3);
-    const nx = this.toPixel(neutral, track);
-    const vx = this.toPixel(this.value, track);
-    if (Math.abs(vx - nx) > 0.5) {
-      fillPanel(ctx, { x: Math.min(nx, vx), y: track.y, w: Math.abs(vx - nx), h: track.h }, PW.color.accent, 3);
-    }
-    if (neutral > this.spec.min && neutral < this.spec.max) {
-      ctx.fillStyle = PW.color.textMute;
-      ctx.fillRect(Math.round(nx), track.y - 2, 1, track.h + 4);
-    }
-    ctx.beginPath();
-    ctx.arc(vx, track.y + track.h / 2, PW.metrics.knob, 0, Math.PI * 2);
-    ctx.fillStyle = PW.color.text;
-    ctx.fill();
-    text(ctx, formatValue(this.value, this.spec.decimals) + this.spec.unit, r.x + r.w, r.y + r.h / 2, {
-      colour: PW.color.textMute,
-      align: "right",
-      font: PW.font.mono
-    });
-  }
-  /** @returns true if the event was consumed. */
-  onPointerDown(x, y, r, now) {
-    const track = this.trackRect(r);
-    const knobX = this.toPixel(this.value, track);
-    const onKnob = Math.abs(x - knobX) <= PW.metrics.hitSlop && Math.abs(y - (track.y + track.h / 2)) <= PW.metrics.hitSlop;
-    if (!onKnob && !hit(track, x, y, PW.metrics.hitSlop)) return false;
-    if (now - this.lastClick < PW.interaction.doubleClickMs) {
-      this.value = this.spec.default;
-      this.lastClick = 0;
-      return true;
-    }
-    this.lastClick = now;
-    this.dragging = true;
-    this.dragStartX = x;
-    this.dragStartValue = onKnob ? this.value : this.quantise(this.toValue(x, track));
-    this.value = this.dragStartValue;
-    return true;
-  }
-  onPointerMove(x, _y, r, shift) {
-    if (!this.dragging) return false;
-    const track = this.trackRect(r);
-    const perPixel = (this.spec.max - this.spec.min) / track.w;
-    const scale = shift ? PW.interaction.fineDragScale : 1;
-    this.value = this.quantise(this.dragStartValue + (x - this.dragStartX) * perPixel * scale);
-    return true;
-  }
-  onPointerUp() {
-    const was = this.dragging;
-    this.dragging = false;
-    return was;
-  }
-  get isDragging() {
-    return this.dragging;
-  }
-};
-
-// src/widgets/layout.ts
-function widgetHeight(node) {
-  const compute = node.computeSize;
-  if (typeof compute === "function") {
-    const size = compute.call(node);
-    if (Array.isArray(size) && Number.isFinite(size[1])) return size[1];
-  }
-  const visible = (node.widgets ?? []).filter((w) => w.type !== "hidden").length;
-  return 40 + visible * (PW.metrics.controlHeight + 4);
-}
-function fitPanel(node, panelHeight2, minWidth) {
-  node.size[0] = Math.max(node.size[0], minWidth);
-  node.size[1] = Math.max(node.size[1], widgetHeight(node) + panelHeight2);
-}
-
-// src/nodes/curves.ts
-var M = PW.metrics;
-var HEADER_H = 18;
-var TABS_H = M.controlHeight;
-var ROW_H = M.controlHeight;
-var MIN_EDITOR_H = 160;
-var CHANNEL_TABS = [
-  { id: "luma", label: "Luma", colour: PW.channel.luma },
-  { id: "r", label: "R", colour: PW.channel.r },
-  { id: "g", label: "G", colour: PW.channel.g },
-  { id: "b", label: "B", colour: PW.channel.b }
-];
-var uis = /* @__PURE__ */ new WeakMap();
-function readState(node) {
-  const w = getWidget(node, "curves");
-  try {
-    const raw = JSON.parse(String(w?.value ?? ""));
-    const s = identityState();
-    for (const k of ["luma", "r", "g", "b"]) {
-      if (Array.isArray(raw?.[k]) && raw[k].length >= 2) s[k] = raw[k].map((p) => [p[0], p[1]]);
-    }
-    return s;
-  } catch {
-    return identityState();
-  }
-}
-function writeState(node, ui) {
-  const w = getWidget(node, "curves");
-  if (!w) return;
-  const s = ui.editor.state;
-  w.value = JSON.stringify({ luma: s.luma, r: s.r, g: s.g, b: s.b });
-  node.setDirtyCanvas?.(true, true);
-}
-async function loadHistogram(node, ui) {
-  try {
-    const res = await fetch(`/pw_color/histogram/${node.id}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    const h = data.histogram;
-    ui.editor.histogram = {
-      luma: Float32Array.from(h.luma),
-      r: Float32Array.from(h.r),
-      g: Float32Array.from(h.g),
-      b: Float32Array.from(h.b)
-    };
-    node.setDirtyCanvas?.(true, true);
-  } catch {
-  }
-}
-function makeUI(node) {
-  const editor = new CurveEditor();
-  const tabs = new Segmented(CHANNEL_TABS);
-  const strengthWidget = getWidget(node, "strength");
-  const strength = new Slider(
-    { label: "Strength", min: 0, max: 1, neutral: 1, default: 1, step: 0.01, decimals: 2 },
-    typeof strengthWidget?.value === "number" ? strengthWidget.value : 1
-  );
-  const layout3 = (n) => {
-    const x = M.padding;
-    const w = n.size[0] - M.padding * 2;
-    let y = widgetHeight(n) + M.gapSection;
-    const header = { x, y, w, h: HEADER_H };
-    y += HEADER_H + 4;
-    const tabsR = { x, y, w, h: TABS_H };
-    y += TABS_H + M.gapControl;
-    const editorH = Math.max(MIN_EDITOR_H, n.size[1] - y - ROW_H - M.gapSection - M.padding);
-    const editorR = { x, y, w, h: editorH };
-    y += editorH + M.gapControl;
-    return { header, tabs: tabsR, editor: editorR, strength: { x, y, w, h: ROW_H } };
-  };
-  const ui = { editor, tabs, strength, layout: layout3 };
-  editor.state = readState(node);
-  editor.onChange = () => writeState(node, ui);
-  return ui;
-}
-function registerCurves() {
-  app.registerExtension({
-    name: "pw.color.curves",
-    async beforeRegisterNodeDef(nodeType, nodeData) {
-      if (nodeData?.name !== "PW_Curves") return;
-      const onCreated = nodeType.prototype.onNodeCreated;
-      nodeType.prototype.onNodeCreated = function() {
-        const r = onCreated?.apply(this, arguments);
-        const ui = makeUI(this);
-        uis.set(this, ui);
-        for (const name of ["curves", "strength"]) {
-          const w = getWidget(this, name);
-          if (!w) continue;
-          w.type = "hidden";
-          w.computeSize = () => [0, -4];
-        }
-        fitPanel(this, HEADER_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.padding, 360);
-        chainHandler(this, "onDrawForeground", function(ctx) {
-          if (this.flags?.collapsed) return;
-          const L = ui.layout(this);
-          sectionHeader(ctx, "Curves", L.header, BADGE.lut);
-          ui.tabs.draw(ctx, L.tabs);
-          ui.editor.draw(ctx, L.editor);
-          ui.strength.draw(ctx, L.strength);
-        });
-        chainHandler(this, "onMouseDown", function(e, pos) {
-          const L = ui.layout(this);
-          const [x, y] = pos;
-          const now = e?.timeStamp ?? 0;
-          const shift = !!e?.shiftKey;
-          const tab = ui.tabs.onPointerDown(x, y, L.tabs);
-          if (tab) {
-            ui.editor.channel = tab;
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          if (ui.strength.onPointerDown(x, y, L.strength, now)) {
-            syncStrength(this, ui);
-            return true;
-          }
-          if (x >= L.editor.x && x <= L.editor.x + L.editor.w && y >= L.editor.y && y <= L.editor.y + L.editor.h) {
-            ui.editor.onPointerDown(x, y, L.editor, shift, now);
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
-        chainHandler(this, "onMouseMove", function(e, pos) {
-          const L = ui.layout(this);
-          const shift = !!e?.shiftKey;
-          if (ui.strength.onPointerMove(pos[0], pos[1], L.strength, shift)) {
-            syncStrength(this, ui);
-            return true;
-          }
-          if (ui.editor.onPointerMove(pos[0], pos[1], L.editor, shift)) {
-            this.setDirtyCanvas?.(true, true);
-            return ui.editor.isDragging;
-          }
-          return false;
-        });
-        chainHandler(this, "onMouseUp", function() {
-          const a = ui.strength.onPointerUp();
-          const b = ui.editor.onPointerUp();
-          if (a || b) this.setDirtyCanvas?.(true, true);
-          return a || b;
-        });
-        void loadHistogram(this, ui);
-        return r;
-      };
-      const onConfigure = nodeType.prototype.onConfigure;
-      nodeType.prototype.onConfigure = function(info) {
-        const r = onConfigure?.apply(this, arguments);
-        const ui = uis.get(this);
-        if (ui) {
-          ui.editor.state = readState(this);
-          const sw = getWidget(this, "strength");
-          if (typeof sw?.value === "number") ui.strength.value = sw.value;
-          void loadHistogram(this, ui);
-        }
-        return r;
-      };
-    }
-  });
-}
-function syncStrength(node, ui) {
-  const w = getWidget(node, "strength");
-  if (w && w.value !== ui.strength.value) {
-    w.value = ui.strength.value;
-    w.callback?.(w.value);
-  }
-  node.setDirtyCanvas?.(true, true);
-}
-
-// src/nodes/grain.ts
-var M2 = PW.metrics;
-var PANEL_H = 96;
-var EDGE_FALLOFF = 0.04;
-function smoothstep(e0, e1, x) {
-  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
-  return t * t * (3 - 2 * t);
-}
-function tonalWeight(t, shadows, mids, highlights) {
-  const shadow = 1 - smoothstep(0, 0.5, t);
-  const highlight = smoothstep(0.5, 1, t);
-  const mid = Math.max(0, 1 - shadow - highlight);
-  const w = shadow * shadows + mid * mids + highlight * highlights;
-  return w * smoothstep(0, EDGE_FALLOFF, t) * smoothstep(0, EDGE_FALLOFF, 1 - t);
-}
-function num(node, name, fallback) {
-  const v = getWidget(node, name)?.value;
-  return typeof v === "number" ? v : fallback;
-}
-function drawResponse(ctx, r, node) {
-  fillPanel(ctx, r, PW.color.well, M2.radiusPanel, PW.color.border);
-  const s = num(node, "shadows", 0.2);
-  const m = num(node, "midtones", 1);
-  const h = num(node, "highlights", 0.1);
-  const peak = Math.max(1e-6, s, m, h);
-  const strip = 8;
-  for (let px = 0; px < r.w; px++) {
-    const v = Math.round(px / Math.max(1, r.w - 1) * 255);
-    ctx.fillStyle = `rgb(${v},${v},${v})`;
-    ctx.fillRect(r.x + px, r.y + r.h - strip, 1, strip);
-  }
-  for (let i = 1; i < 4; i++) {
-    const x = r.x + i / 4 * r.w;
-    hairline(ctx, x, r.y, x, r.y + r.h - strip, PW.color.grid);
-  }
-  const plotH = r.h - strip - 6;
-  ctx.beginPath();
-  ctx.moveTo(r.x, r.y + plotH);
-  const steps = Math.max(48, Math.ceil(r.w));
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const w = tonalWeight(t, s, m, h) / peak;
-    ctx.lineTo(r.x + t * r.w, r.y + plotH - w * (plotH - 6));
-  }
-  ctx.lineTo(r.x + r.w, r.y + plotH);
-  ctx.closePath();
-  ctx.fillStyle = PW.color.surface;
-  ctx.fill();
-  ctx.beginPath();
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const w = tonalWeight(t, s, m, h) / peak;
-    const x = r.x + t * r.w;
-    const y = r.y + plotH - w * (plotH - 6);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.strokeStyle = PW.channel.warm;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  text(ctx, "shadows", r.x + 4, r.y + 10, { colour: PW.color.textMute });
-  text(ctx, "highlights", r.x + r.w - 4, r.y + 10, { colour: PW.color.textMute, align: "right" });
-}
-function registerGrain() {
-  app.registerExtension({
-    name: "pw.color.grain",
-    async beforeRegisterNodeDef(nodeType, nodeData) {
-      if (nodeData?.name !== "PW_Grain") return;
-      const onCreated = nodeType.prototype.onNodeCreated;
-      nodeType.prototype.onNodeCreated = function() {
-        const r = onCreated?.apply(this, arguments);
-        fitPanel(this, PANEL_H + 22 + M2.gapSection + M2.padding, 320);
-        chainHandler(this, "onDrawForeground", function(ctx) {
-          if (this.flags?.collapsed) return;
-          const x = M2.padding;
-          const w = this.size[0] - M2.padding * 2;
-          const y = this.size[1] - PANEL_H - M2.padding - 18;
-          sectionHeader(ctx, "Tonal response", { x, y, w, h: 18 }, BADGE.render);
-          drawResponse(ctx, { x, y: y + 20, w, h: PANEL_H - 20 }, this);
-        });
-        return r;
-      };
-      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
-      nodeType.prototype.onWidgetChanged = function() {
-        const res = onWidgetChanged?.apply(this, arguments);
-        this.setDirtyCanvas?.(true, true);
-        return res;
-      };
-    }
-  });
 }
 
 // src/core/lattice.ts
@@ -1156,6 +730,269 @@ function base64Decode(text2) {
   return out;
 }
 
+// src/canvas/preview.ts
+var VERT = `#version 300 es
+in vec2 a_pos;
+out vec2 v_uv;
+void main() {
+  v_uv = vec2(a_pos.x, 1.0 - a_pos.y);
+  gl_Position = vec4(a_pos * 2.0 - 1.0, 0.0, 1.0);
+}`;
+var FRAG = `#version 300 es
+precision highp float;
+precision highp sampler3D;
+
+in vec2 v_uv;
+out vec4 outColour;
+
+uniform sampler2D u_image;
+uniform sampler3D u_lut;
+uniform float u_size;     // lattice edge length
+uniform float u_wipe;     // 0 = all original, 1 = all graded
+uniform float u_enabled;  // 0 disables the lattice entirely
+
+// Eight-corner trilinear, matching Lattice.applyPoints line for line.
+vec3 sampleLattice(vec3 rgb) {
+  float n = u_size;
+  vec3 c = clamp(rgb, 0.0, 1.0) * (n - 1.0);
+  vec3 i0 = min(floor(c), vec3(n - 2.0));
+  vec3 f = c - i0;
+  ivec3 b0 = ivec3(i0);
+
+  vec3 c000 = texelFetch(u_lut, b0 + ivec3(0, 0, 0), 0).rgb;
+  vec3 c100 = texelFetch(u_lut, b0 + ivec3(1, 0, 0), 0).rgb;
+  vec3 c010 = texelFetch(u_lut, b0 + ivec3(0, 1, 0), 0).rgb;
+  vec3 c110 = texelFetch(u_lut, b0 + ivec3(1, 1, 0), 0).rgb;
+  vec3 c001 = texelFetch(u_lut, b0 + ivec3(0, 0, 1), 0).rgb;
+  vec3 c101 = texelFetch(u_lut, b0 + ivec3(1, 0, 1), 0).rgb;
+  vec3 c011 = texelFetch(u_lut, b0 + ivec3(0, 1, 1), 0).rgb;
+  vec3 c111 = texelFetch(u_lut, b0 + ivec3(1, 1, 1), 0).rgb;
+
+  vec3 x00 = mix(c000, c100, f.r);
+  vec3 x10 = mix(c010, c110, f.r);
+  vec3 x01 = mix(c001, c101, f.r);
+  vec3 x11 = mix(c011, c111, f.r);
+  vec3 y0 = mix(x00, x10, f.g);
+  vec3 y1 = mix(x01, x11, f.g);
+  return mix(y0, y1, f.b);
+}
+
+void main() {
+  vec3 src = texture(u_image, v_uv).rgb;
+  vec3 graded = u_enabled > 0.5 ? clamp(sampleLattice(src), 0.0, 1.0) : src;
+  outColour = vec4(v_uv.x <= u_wipe ? graded : src, 1.0);
+}`;
+var Renderer = class {
+  canvas;
+  gl = null;
+  program = null;
+  lut = null;
+  uniforms = {};
+  lutDigest = "";
+  failed = false;
+  constructor() {
+    this.canvas = document.createElement("canvas");
+    this.canvas.width = 512;
+    this.canvas.height = 512;
+  }
+  init() {
+    if (this.gl) return true;
+    if (this.failed) return false;
+    const gl = this.canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: false });
+    if (!gl) {
+      this.failed = true;
+      console.warn("[PW Color] WebGL2 unavailable, live preview disabled");
+      return false;
+    }
+    const compile = (type, src) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error("[PW Color] shader error", gl.getShaderInfoLog(s));
+        return null;
+      }
+      return s;
+    };
+    const vs = compile(gl.VERTEX_SHADER, VERT);
+    const fs = compile(gl.FRAGMENT_SHADER, FRAG);
+    if (!vs || !fs) {
+      this.failed = true;
+      return false;
+    }
+    const p = gl.createProgram();
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      console.error("[PW Color] link error", gl.getProgramInfoLog(p));
+      this.failed = true;
+      return false;
+    }
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(p, "a_pos");
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.useProgram(p);
+    for (const name of ["u_image", "u_lut", "u_size", "u_wipe", "u_enabled"]) {
+      this.uniforms[name] = gl.getUniformLocation(p, name);
+    }
+    gl.uniform1i(this.uniforms.u_image, 0);
+    gl.uniform1i(this.uniforms.u_lut, 1);
+    this.gl = gl;
+    this.program = p;
+    return true;
+  }
+  /** Upload a lattice as a 3D texture. Cached by digest — a drag re-renders
+   *  every frame but only re-uploads when the maths actually changed. */
+  uploadLut(lattice, digest) {
+    const gl = this.gl;
+    if (this.lut && digest === this.lutDigest) return;
+    if (!this.lut) this.lut = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_3D, this.lut);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    for (const axis of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) {
+      gl.texParameteri(gl.TEXTURE_3D, axis, gl.CLAMP_TO_EDGE);
+    }
+    const n = lattice.size;
+    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB32F, n, n, n, 0, gl.RGB, gl.FLOAT, lattice.data);
+    this.lutDigest = digest;
+  }
+  render(image, lattice, digest, w, h, wipe) {
+    if (!this.init()) return null;
+    const gl = this.gl;
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(this.program);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, image.texture(gl));
+    if (lattice) this.uploadLut(lattice, digest);
+    gl.uniform1f(this.uniforms.u_size, lattice ? lattice.size : 2);
+    gl.uniform1f(this.uniforms.u_enabled, lattice ? 1 : 0);
+    gl.uniform1f(this.uniforms.u_wipe, wipe);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    return this.canvas;
+  }
+};
+var TexSource = class {
+  constructor(bitmap) {
+    this.bitmap = bitmap;
+    this.width = bitmap.width;
+    this.height = bitmap.height;
+  }
+  tex = null;
+  uploaded = false;
+  width;
+  height;
+  texture(gl) {
+    if (!this.tex) this.tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    if (!this.uploaded) {
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.bitmap);
+      this.uploaded = true;
+    }
+    return this.tex;
+  }
+  dispose() {
+    this.bitmap.close?.();
+  }
+};
+var renderer = null;
+function shared() {
+  if (!renderer) renderer = new Renderer();
+  return renderer;
+}
+var Preview = class {
+  source = null;
+  lattice = null;
+  digest = "";
+  /** 0 shows the original across the whole panel; 1 shows the grade. */
+  wipe = 1;
+  /** True while the compare key is held. */
+  comparing = false;
+  loading = false;
+  failedFetch = false;
+  /** Pull this node's cached input from the preview route. */
+  async load(nodeId, onReady) {
+    if (this.loading || this.failedFetch) return;
+    this.loading = true;
+    try {
+      const res = await fetch(`/pw_color/input/${nodeId}`);
+      if (!res.ok) {
+        this.loading = false;
+        return;
+      }
+      const bmp = await createImageBitmap(await res.blob());
+      this.source?.dispose();
+      this.source = new TexSource(bmp);
+      onReady();
+    } catch {
+      this.failedFetch = true;
+    } finally {
+      this.loading = false;
+    }
+  }
+  get hasImage() {
+    return this.source !== null;
+  }
+  draw(ctx, r) {
+    fillPanel(ctx, r, PW.color.well, PW.metrics.radiusPanel, PW.color.border);
+    if (!this.source) {
+      text(ctx, "Run the graph once to preview", r.x + r.w / 2, r.y + r.h / 2, {
+        colour: PW.color.textMute,
+        align: "center"
+      });
+      return;
+    }
+    const scale = Math.max(r.w / this.source.width, r.h / this.source.height);
+    const dw = Math.round(this.source.width * scale);
+    const dh = Math.round(this.source.height * scale);
+    const wipe = this.comparing ? 0 : this.wipe;
+    const out = shared().render(this.source, this.lattice, this.digest, dw, dh, wipe);
+    ctx.save();
+    fillPanel(ctx, r, PW.color.well, PW.metrics.radiusPanel);
+    ctx.clip();
+    if (out) {
+      ctx.drawImage(out, r.x + (r.w - dw) / 2, r.y + (r.h - dh) / 2, dw, dh);
+    } else {
+      text(ctx, "WebGL2 unavailable", r.x + r.w / 2, r.y + r.h / 2, {
+        colour: PW.color.textMute,
+        align: "center"
+      });
+    }
+    ctx.restore();
+    if (!this.comparing && this.wipe > 1e-3 && this.wipe < 0.999) {
+      const x = r.x + this.wipe * r.w;
+      ctx.strokeStyle = PW.color.accent;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(x) + 0.5, r.y);
+      ctx.lineTo(Math.round(x) + 0.5, r.y + r.h);
+      ctx.stroke();
+    }
+    if (this.comparing) {
+      text(ctx, "before", r.x + 8, r.y + 12, { colour: PW.color.accent });
+    }
+  }
+  /** @returns true if the drag was consumed. */
+  onPointer(x, r, dragging) {
+    if (!dragging || !this.source) return false;
+    this.wipe = Math.min(1, Math.max(0, (x - r.x) / r.w));
+    return true;
+  }
+};
+
 // src/core/colour.ts
 var SRGB_LINEAR_CUTOFF = 31308e-7;
 var SRGB_ENCODED_CUTOFF = 0.04045;
@@ -1222,12 +1059,12 @@ var HSL_BANDS = [
 ];
 var BAND_HALF = 0.36;
 var TONE_CENTRES = [0, 0.33, 0.67, 1];
-function smoothstep2(e0, e1, x) {
+function smoothstep(e0, e1, x) {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
   return t * t * (3 - 2 * t);
 }
 function band(x, centre, half = BAND_HALF) {
-  return smoothstep2(centre - half, centre, x) * (1 - smoothstep2(centre, centre + half, x));
+  return smoothstep(centre - half, centre, x) * (1 - smoothstep(centre, centre + half, x));
 }
 function opTone(rgb, p) {
   const exposure = p.exposure ?? 0, contrast = p.contrast ?? 0;
@@ -1282,10 +1119,10 @@ function hueDistance(h, centre) {
 }
 function opHsl(rgb, p) {
   const bands = p.bands ?? {};
-  const active = Object.entries(bands).filter(
+  const active2 = Object.entries(bands).filter(
     ([, v]) => v && ((v.hue ?? 0) !== 0 || (v.sat ?? 0) !== 0 || (v.lum ?? 0) !== 0)
   );
-  if (active.length === 0) return rgb;
+  if (active2.length === 0) return rgb;
   const lab = srgbToOklab(rgb[0], rgb[1], rgb[2]);
   const l = lab[0], a = lab[1], b = lab[2];
   const c = Math.sqrt(a * a + b * b);
@@ -1297,7 +1134,7 @@ function opHsl(rgb, p) {
     const bandv = bands[name];
     if (!bandv) continue;
     const dist = Math.abs(hueDistance(h, centre));
-    const w = (1 - smoothstep2(0, half * 1.6, dist)) * chromaGate;
+    const w = (1 - smoothstep(0, half * 1.6, dist)) * chromaGate;
     if (bandv.hue) dHue += w * bandv.hue * (Math.PI / 12);
     if (bandv.sat) satScale *= 1 + w * bandv.sat;
     if (bandv.lum) dLum += w * bandv.lum * 0.15;
@@ -1455,12 +1292,638 @@ function buildSampleFn(ops) {
   };
 }
 
+// src/widgets/compare.ts
+var listeners = /* @__PURE__ */ new Set();
+var held = false;
+var installed = false;
+function set(next) {
+  if (next === held) return;
+  held = next;
+  for (const fn of listeners) fn(held);
+}
+function install() {
+  if (installed) return;
+  installed = true;
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Alt") set(true);
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.key === "Alt") set(false);
+  });
+  window.addEventListener("blur", () => set(false));
+}
+function isComparing() {
+  return held;
+}
+function onCompareChange(fn) {
+  install();
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+// src/widgets/numeric_entry.ts
+var active = null;
+function toPage(canvas, node, r) {
+  const ds = canvas.__pwds ?? null;
+  const app2 = globalThis.app;
+  const scale = app2?.canvas?.ds?.scale ?? 1;
+  const [ox, oy] = app2?.canvas?.ds?.offset ?? [0, 0];
+  const box = canvas.getBoundingClientRect();
+  void ds;
+  return {
+    x: box.left + (node.pos[0] + r.x + ox) * scale,
+    y: box.top + (node.pos[1] + r.y + oy) * scale,
+    w: r.w * scale,
+    h: r.h * scale
+  };
+}
+function openNumericEntry(node, rect, opts) {
+  close();
+  const app2 = globalThis.app;
+  const canvas = app2?.canvas?.canvas;
+  if (!canvas) return;
+  const page = toPage(canvas, node, rect);
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = opts.value.toFixed(opts.decimals ?? 2);
+  Object.assign(input.style, {
+    position: "fixed",
+    left: `${page.x}px`,
+    top: `${page.y}px`,
+    width: `${Math.max(48, page.w)}px`,
+    height: `${Math.max(18, page.h)}px`,
+    zIndex: "9999",
+    background: PW.color.surface,
+    color: PW.color.text,
+    border: `1px solid ${PW.color.accent}`,
+    borderRadius: `${PW.metrics.radiusControl}px`,
+    font: PW.font.mono,
+    textAlign: "right",
+    padding: "0 4px",
+    outline: "none"
+  });
+  let done = false;
+  const commit = (apply) => {
+    if (done) return;
+    done = true;
+    const raw = input.value.trim();
+    input.remove();
+    if (active === input) active = null;
+    if (!apply || raw === "") return;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    let v = parsed;
+    if (opts.min !== void 0) v = Math.max(opts.min, v);
+    if (opts.max !== void 0) v = Math.min(opts.max, v);
+    opts.onCommit(v);
+  };
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") commit(true);
+    else if (e.key === "Escape") commit(false);
+  });
+  input.addEventListener("blur", () => commit(true));
+  document.body.appendChild(input);
+  input.focus();
+  input.select();
+  active = input;
+}
+function close() {
+  active?.blur();
+  active = null;
+}
+
+// src/widgets/segmented.ts
+var Segmented = class {
+  segments;
+  selected;
+  constructor(segments, selected) {
+    if (segments.length === 0) throw new Error("Segmented needs at least one segment");
+    this.segments = segments;
+    this.selected = selected ?? segments[0].id;
+  }
+  cellRects(r) {
+    const gap = 4;
+    const w = (r.w - gap * (this.segments.length - 1)) / this.segments.length;
+    return this.segments.map((_, i) => ({ x: r.x + i * (w + gap), y: r.y, w, h: r.h }));
+  }
+  draw(ctx, r) {
+    const cells = this.cellRects(r);
+    this.segments.forEach((seg, i) => {
+      const active2 = seg.id === this.selected;
+      const cell = cells[i];
+      fillPanel(
+        ctx,
+        cell,
+        active2 ? PW.color.chipActive : PW.color.chip,
+        PW.metrics.radiusControl,
+        active2 ? PW.color.border : PW.color.borderSoft
+      );
+      text(ctx, seg.label, cell.x + cell.w / 2, cell.y + cell.h / 2, {
+        colour: active2 ? seg.colour ?? PW.color.text : PW.color.textMute,
+        align: "center"
+      });
+      if (active2 && seg.colour) {
+        ctx.fillStyle = seg.colour;
+        ctx.fillRect(cell.x + 6, cell.y + cell.h - 3, cell.w - 12, 2);
+      }
+    });
+  }
+  /** @returns the id that was clicked, or null. */
+  onPointerDown(x, y, r) {
+    const cells = this.cellRects(r);
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) {
+        this.selected = this.segments[i].id;
+        return this.selected;
+      }
+    }
+    return null;
+  }
+};
+
+// src/widgets/slider.ts
+var LABEL_W = 86;
+var VALUE_W = 52;
+var Slider = class {
+  spec;
+  value;
+  dragging = false;
+  dragStartX = 0;
+  dragStartValue = 0;
+  lastClick = 0;
+  constructor(spec, value) {
+    const neutral = spec.neutral ?? spec.min;
+    this.spec = {
+      label: spec.label,
+      min: spec.min,
+      max: spec.max,
+      neutral,
+      default: spec.default ?? neutral,
+      step: spec.step ?? 0.01,
+      decimals: spec.decimals ?? 2,
+      unit: spec.unit ?? ""
+    };
+    this.value = value ?? this.spec.default;
+  }
+  trackRect(r) {
+    const x = r.x + LABEL_W;
+    return { x, y: r.y + r.h / 2 - 3, w: r.w - LABEL_W - VALUE_W - PW.metrics.gapControl, h: 6 };
+  }
+  toValue(px, track) {
+    const t = Math.min(1, Math.max(0, (px - track.x) / track.w));
+    return this.spec.min + t * (this.spec.max - this.spec.min);
+  }
+  toPixel(v, track) {
+    const t = (v - this.spec.min) / (this.spec.max - this.spec.min);
+    return track.x + Math.min(1, Math.max(0, t)) * track.w;
+  }
+  quantise(v) {
+    const { min, max, step } = this.spec;
+    const snapped = Math.round(v / step) * step;
+    return Math.min(max, Math.max(min, snapped));
+  }
+  draw(ctx, r) {
+    const track = this.trackRect(r);
+    const { neutral } = this.spec;
+    text(ctx, this.spec.label, r.x, r.y + r.h / 2, { colour: PW.color.textDim });
+    fillPanel(ctx, track, PW.color.well, 3);
+    const nx = this.toPixel(neutral, track);
+    const vx = this.toPixel(this.value, track);
+    if (Math.abs(vx - nx) > 0.5) {
+      fillPanel(ctx, { x: Math.min(nx, vx), y: track.y, w: Math.abs(vx - nx), h: track.h }, PW.color.accent, 3);
+    }
+    if (neutral > this.spec.min && neutral < this.spec.max) {
+      ctx.fillStyle = PW.color.textMute;
+      ctx.fillRect(Math.round(nx), track.y - 2, 1, track.h + 4);
+    }
+    ctx.beginPath();
+    ctx.arc(vx, track.y + track.h / 2, PW.metrics.knob, 0, Math.PI * 2);
+    ctx.fillStyle = PW.color.text;
+    ctx.fill();
+    text(ctx, formatValue(this.value, this.spec.decimals) + this.spec.unit, r.x + r.w, r.y + r.h / 2, {
+      colour: PW.color.textMute,
+      align: "right",
+      font: PW.font.mono
+    });
+  }
+  /** Hit region for the numeric readout, so it can be clicked to type. */
+  valueRect(r) {
+    return { x: r.x + r.w - VALUE_W, y: r.y, w: VALUE_W, h: r.h };
+  }
+  /** @returns true if the event was consumed. */
+  onPointerDown(x, y, r, now) {
+    const track = this.trackRect(r);
+    const knobX = this.toPixel(this.value, track);
+    const onKnob = Math.abs(x - knobX) <= PW.metrics.hitSlop && Math.abs(y - (track.y + track.h / 2)) <= PW.metrics.hitSlop;
+    if (!onKnob && !hit(track, x, y, PW.metrics.hitSlop)) return false;
+    if (now - this.lastClick < PW.interaction.doubleClickMs) {
+      this.value = this.spec.default;
+      this.lastClick = 0;
+      return true;
+    }
+    this.lastClick = now;
+    this.dragging = true;
+    this.dragStartX = x;
+    this.dragStartValue = onKnob ? this.value : this.quantise(this.toValue(x, track));
+    this.value = this.dragStartValue;
+    return true;
+  }
+  onPointerMove(x, _y, r, shift) {
+    if (!this.dragging) return false;
+    const track = this.trackRect(r);
+    const perPixel = (this.spec.max - this.spec.min) / track.w;
+    const scale = shift ? PW.interaction.fineDragScale : 1;
+    this.value = this.quantise(this.dragStartValue + (x - this.dragStartX) * perPixel * scale);
+    return true;
+  }
+  onPointerUp() {
+    const was = this.dragging;
+    this.dragging = false;
+    return was;
+  }
+  get isDragging() {
+    return this.dragging;
+  }
+};
+
+// src/widgets/layout.ts
+function widgetHeight(node) {
+  const compute = node.computeSize;
+  if (typeof compute === "function") {
+    const size = compute.call(node);
+    if (Array.isArray(size) && Number.isFinite(size[1])) return size[1];
+  }
+  const visible = (node.widgets ?? []).filter((w) => w.type !== "hidden").length;
+  return 40 + visible * (PW.metrics.controlHeight + 4);
+}
+function fitPanel(node, panelHeight2, minWidth) {
+  node.size[0] = Math.max(node.size[0], minWidth);
+  node.size[1] = Math.max(node.size[1], widgetHeight(node) + panelHeight2);
+}
+
+// src/nodes/curves.ts
+var M = PW.metrics;
+var HEADER_H = 18;
+var TABS_H = M.controlHeight;
+var ROW_H = M.controlHeight;
+var MIN_EDITOR_H = 160;
+var PREVIEW_H = 140;
+var CHANNEL_TABS = [
+  { id: "luma", label: "Luma", colour: PW.channel.luma },
+  { id: "r", label: "R", colour: PW.channel.r },
+  { id: "g", label: "G", colour: PW.channel.g },
+  { id: "b", label: "B", colour: PW.channel.b }
+];
+var uis = /* @__PURE__ */ new WeakMap();
+function readState(node) {
+  const w = getWidget(node, "curves");
+  try {
+    const raw = JSON.parse(String(w?.value ?? ""));
+    const s = identityState();
+    for (const k of ["luma", "r", "g", "b"]) {
+      if (Array.isArray(raw?.[k]) && raw[k].length >= 2) s[k] = raw[k].map((p) => [p[0], p[1]]);
+    }
+    return s;
+  } catch {
+    return identityState();
+  }
+}
+function writeState(node, ui) {
+  const w = getWidget(node, "curves");
+  if (!w) return;
+  const s = ui.editor.state;
+  w.value = JSON.stringify({ luma: s.luma, r: s.r, g: s.g, b: s.b });
+  node.setDirtyCanvas?.(true, true);
+}
+async function loadHistogram(node, ui) {
+  try {
+    const res = await fetch(`/pw_color/histogram/${node.id}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const h = data.histogram;
+    ui.editor.histogram = {
+      luma: Float32Array.from(h.luma),
+      r: Float32Array.from(h.r),
+      g: Float32Array.from(h.g),
+      b: Float32Array.from(h.b)
+    };
+    node.setDirtyCanvas?.(true, true);
+  } catch {
+  }
+}
+function makeUI(node) {
+  const editor = new CurveEditor();
+  const tabs = new Segmented(CHANNEL_TABS);
+  const strengthWidget = getWidget(node, "strength");
+  const strength = new Slider(
+    { label: "Strength", min: 0, max: 1, neutral: 1, default: 1, step: 0.01, decimals: 2 },
+    typeof strengthWidget?.value === "number" ? strengthWidget.value : 1
+  );
+  const layout3 = (n) => {
+    const x = M.padding;
+    const w = n.size[0] - M.padding * 2;
+    let y = widgetHeight(n) + M.gapSection;
+    const header = { x, y, w, h: HEADER_H };
+    y += HEADER_H + 4;
+    const previewR = { x, y, w, h: PREVIEW_H };
+    y += PREVIEW_H + M.gapControl;
+    const tabsR = { x, y, w, h: TABS_H };
+    y += TABS_H + M.gapControl;
+    const editorH = Math.max(MIN_EDITOR_H, n.size[1] - y - ROW_H - M.gapSection - M.padding);
+    const editorR = { x, y, w, h: editorH };
+    y += editorH + M.gapControl;
+    return { header, preview: previewR, tabs: tabsR, editor: editorR, strength: { x, y, w, h: ROW_H } };
+  };
+  const preview = new Preview();
+  const rebake = (n) => {
+    const op = {
+      type: "curves",
+      params: {
+        ...editor.state,
+        preserve_hue: getWidget(n, "preserve_hue")?.value !== false
+      },
+      strength: typeof getWidget(n, "strength")?.value === "number" ? getWidget(n, "strength").value : 1
+    };
+    preview.lattice = Lattice.fromFn(buildSampleFn([op]), DEFAULT_SIZE);
+    preview.digest = JSON.stringify([op.params, op.strength]);
+  };
+  const ui = { editor, tabs, strength, preview, layout: layout3, rebake };
+  editor.state = readState(node);
+  editor.onChange = () => {
+    writeState(node, ui);
+    rebake(node);
+  };
+  rebake(node);
+  return ui;
+}
+function registerCurves() {
+  app.registerExtension({
+    name: "pw.color.curves",
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+      if (nodeData?.name !== "PW_Curves") return;
+      const onCreated = nodeType.prototype.onNodeCreated;
+      nodeType.prototype.onNodeCreated = function() {
+        const r = onCreated?.apply(this, arguments);
+        const ui = makeUI(this);
+        uis.set(this, ui);
+        for (const name of ["curves", "strength"]) {
+          const w = getWidget(this, name);
+          if (!w) continue;
+          w.type = "hidden";
+          w.computeSize = () => [0, -4];
+        }
+        fitPanel(
+          this,
+          HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding,
+          360
+        );
+        void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+        const unsubscribe = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const priorRemoved = this.onRemoved;
+        this.onRemoved = function() {
+          unsubscribe();
+          priorRemoved?.call(this);
+        };
+        chainHandler(this, "onDrawForeground", function(ctx) {
+          if (this.flags?.collapsed) return;
+          const L = ui.layout(this);
+          sectionHeader(ctx, "Curves", L.header, BADGE.lut);
+          ui.preview.comparing = isComparing();
+          ui.preview.draw(ctx, L.preview);
+          ui.tabs.draw(ctx, L.tabs);
+          ui.editor.draw(ctx, L.editor);
+          ui.strength.draw(ctx, L.strength);
+        });
+        chainHandler(this, "onMouseDown", function(e, pos) {
+          const L = ui.layout(this);
+          const [x, y] = pos;
+          const now = e?.timeStamp ?? 0;
+          const shift = !!e?.shiftKey;
+          const tab = ui.tabs.onPointerDown(x, y, L.tabs);
+          if (tab) {
+            ui.editor.channel = tab;
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+          if (hit(ui.strength.valueRect(L.strength), x, y)) {
+            openNumericEntry(this, ui.strength.valueRect(L.strength), {
+              value: ui.strength.value,
+              min: ui.strength.spec.min,
+              max: ui.strength.spec.max,
+              decimals: ui.strength.spec.decimals,
+              onCommit: (v) => {
+                ui.strength.value = v;
+                syncStrength(this, ui);
+                ui.rebake(this);
+              }
+            });
+            return true;
+          }
+          if (ui.strength.onPointerDown(x, y, L.strength, now)) {
+            syncStrength(this, ui);
+            ui.rebake(this);
+            return true;
+          }
+          if (hit(L.preview, x, y)) {
+            ui.preview.onPointer(x, L.preview, true);
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+          if (x >= L.editor.x && x <= L.editor.x + L.editor.w && y >= L.editor.y && y <= L.editor.y + L.editor.h) {
+            ui.editor.onPointerDown(x, y, L.editor, shift, now);
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+          return false;
+        });
+        chainHandler(this, "onMouseMove", function(e, pos) {
+          const L = ui.layout(this);
+          const shift = !!e?.shiftKey;
+          if (ui.strength.onPointerMove(pos[0], pos[1], L.strength, shift)) {
+            syncStrength(this, ui);
+            ui.rebake(this);
+            return true;
+          }
+          if (ui.editor.onPointerMove(pos[0], pos[1], L.editor, shift)) {
+            this.setDirtyCanvas?.(true, true);
+            return ui.editor.isDragging;
+          }
+          return false;
+        });
+        chainHandler(this, "onMouseUp", function() {
+          const a = ui.strength.onPointerUp();
+          const b = ui.editor.onPointerUp();
+          if (a || b) this.setDirtyCanvas?.(true, true);
+          return a || b;
+        });
+        void loadHistogram(this, ui);
+        return r;
+      };
+      const onConfigure = nodeType.prototype.onConfigure;
+      nodeType.prototype.onConfigure = function(info) {
+        const r = onConfigure?.apply(this, arguments);
+        const ui = uis.get(this);
+        if (ui) {
+          ui.editor.state = readState(this);
+          const sw = getWidget(this, "strength");
+          if (typeof sw?.value === "number") ui.strength.value = sw.value;
+          ui.rebake(this);
+          void loadHistogram(this, ui);
+          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+        }
+        return r;
+      };
+    }
+  });
+}
+function syncStrength(node, ui) {
+  const w = getWidget(node, "strength");
+  if (w && w.value !== ui.strength.value) {
+    w.value = ui.strength.value;
+    w.callback?.(w.value);
+  }
+  node.setDirtyCanvas?.(true, true);
+}
+
+// src/nodes/grain.ts
+var M2 = PW.metrics;
+var PANEL_H = 96;
+var EDGE_FALLOFF = 0.04;
+function smoothstep2(e0, e1, x) {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
+function tonalWeight(t, shadows, mids, highlights) {
+  const shadow = 1 - smoothstep2(0, 0.5, t);
+  const highlight = smoothstep2(0.5, 1, t);
+  const mid = Math.max(0, 1 - shadow - highlight);
+  const w = shadow * shadows + mid * mids + highlight * highlights;
+  return w * smoothstep2(0, EDGE_FALLOFF, t) * smoothstep2(0, EDGE_FALLOFF, 1 - t);
+}
+function num(node, name, fallback) {
+  const v = getWidget(node, name)?.value;
+  return typeof v === "number" ? v : fallback;
+}
+function drawResponse(ctx, r, node) {
+  fillPanel(ctx, r, PW.color.well, M2.radiusPanel, PW.color.border);
+  const s = num(node, "shadows", 0.2);
+  const m = num(node, "midtones", 1);
+  const h = num(node, "highlights", 0.1);
+  const peak = Math.max(1e-6, s, m, h);
+  const strip = 8;
+  for (let px = 0; px < r.w; px++) {
+    const v = Math.round(px / Math.max(1, r.w - 1) * 255);
+    ctx.fillStyle = `rgb(${v},${v},${v})`;
+    ctx.fillRect(r.x + px, r.y + r.h - strip, 1, strip);
+  }
+  for (let i = 1; i < 4; i++) {
+    const x = r.x + i / 4 * r.w;
+    hairline(ctx, x, r.y, x, r.y + r.h - strip, PW.color.grid);
+  }
+  const plotH = r.h - strip - 6;
+  ctx.beginPath();
+  ctx.moveTo(r.x, r.y + plotH);
+  const steps = Math.max(48, Math.ceil(r.w));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const w = tonalWeight(t, s, m, h) / peak;
+    ctx.lineTo(r.x + t * r.w, r.y + plotH - w * (plotH - 6));
+  }
+  ctx.lineTo(r.x + r.w, r.y + plotH);
+  ctx.closePath();
+  ctx.fillStyle = PW.color.surface;
+  ctx.fill();
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const w = tonalWeight(t, s, m, h) / peak;
+    const x = r.x + t * r.w;
+    const y = r.y + plotH - w * (plotH - 6);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = PW.channel.warm;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  text(ctx, "shadows", r.x + 4, r.y + 10, { colour: PW.color.textMute });
+  text(ctx, "highlights", r.x + r.w - 4, r.y + 10, { colour: PW.color.textMute, align: "right" });
+}
+function registerGrain() {
+  app.registerExtension({
+    name: "pw.color.grain",
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+      if (nodeData?.name !== "PW_Grain") return;
+      const onCreated = nodeType.prototype.onNodeCreated;
+      nodeType.prototype.onNodeCreated = function() {
+        const r = onCreated?.apply(this, arguments);
+        fitPanel(this, PANEL_H + 22 + M2.gapSection + M2.padding, 320);
+        chainHandler(this, "onDrawForeground", function(ctx) {
+          if (this.flags?.collapsed) return;
+          const x = M2.padding;
+          const w = this.size[0] - M2.padding * 2;
+          const y = this.size[1] - PANEL_H - M2.padding - 18;
+          sectionHeader(ctx, "Tonal response", { x, y, w, h: 18 }, BADGE.render);
+          drawResponse(ctx, { x, y: y + 20, w, h: PANEL_H - 20 }, this);
+        });
+        return r;
+      };
+      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
+      nodeType.prototype.onWidgetChanged = function() {
+        const res = onWidgetChanged?.apply(this, arguments);
+        this.setDirtyCanvas?.(true, true);
+        return res;
+      };
+    }
+  });
+}
+
 // src/nodes/look.ts
 var M3 = PW.metrics;
 var THUMB_H = 74;
 var THUMB_W = 96;
 var HSL_ROW_H = 22;
 var HEADER_H2 = 18;
+var PREVIEW_H2 = 150;
+function refreshPreview(node) {
+  const ui = uis2.get(node);
+  if (!ui) return;
+  const num2 = (name, d) => {
+    const v = getWidget(node, name)?.value;
+    return typeof v === "number" ? v : d;
+  };
+  let bands = {};
+  try {
+    bands = JSON.parse(String(getWidget(node, "hsl")?.value ?? "{}"));
+  } catch {
+  }
+  const ops = [
+    {
+      type: "tone",
+      params: {
+        exposure: num2("exposure", 0),
+        contrast: num2("contrast", 0),
+        highlights: num2("highlights", 0),
+        shadows: num2("shadows", 0),
+        whites: num2("whites", 0),
+        blacks: num2("blacks", 0)
+      }
+    },
+    {
+      type: "colour",
+      params: {
+        warmth: num2("warmth", 0),
+        tint: num2("tint", 0),
+        vibrance: num2("vibrance", 0),
+        saturation: num2("saturation", 1)
+      }
+    },
+    { type: "hsl", params: { bands } }
+  ];
+  ui.preview.lattice = Lattice.fromFn(buildSampleFn(ops), DEFAULT_SIZE);
+  ui.preview.digest = JSON.stringify(ops);
+}
 var uis2 = /* @__PURE__ */ new WeakMap();
 var presetCache = null;
 async function loadPresets() {
@@ -1473,6 +1936,53 @@ async function loadPresets() {
     presetCache = [];
   }
   return presetCache;
+}
+var PRESET_SLIDERS = {
+  exposure: 0,
+  contrast: 0,
+  highlights: 0,
+  shadows: 0,
+  whites: 0,
+  blacks: 0,
+  warmth: 0,
+  tint: 0,
+  vibrance: 0,
+  saturation: 1,
+  glow: 0,
+  glow_radius: 24,
+  glow_threshold: 0.65,
+  gradient_map: 0
+};
+function applyPreset(node, preset) {
+  const combo = getWidget(node, "preset");
+  if (combo) {
+    combo.value = preset.id;
+    combo.callback?.(combo.value);
+  }
+  if (preset.id !== "none") {
+    for (const [name, neutral] of Object.entries(PRESET_SLIDERS)) {
+      const w = getWidget(node, name);
+      if (!w) continue;
+      const key = name === "gradient_map" ? "gradient_map_amount" : name;
+      const next = typeof preset.params[key] === "number" ? preset.params[key] : neutral;
+      if (w.value !== next) {
+        w.value = next;
+        w.callback?.(w.value);
+      }
+    }
+    const blend = getWidget(node, "gradient_blend");
+    if (blend && preset.params.gradient_map_blend) {
+      blend.value = preset.params.gradient_map_blend;
+      blend.callback?.(blend.value);
+    }
+    const hsl = getWidget(node, "hsl");
+    if (hsl) {
+      hsl.value = JSON.stringify(preset.params.hsl ?? {});
+      hsl.callback?.(hsl.value);
+    }
+  }
+  refreshPreview(node);
+  node.setDirtyCanvas?.(true, true);
 }
 function presetOps(p) {
   const num2 = (k, d = 0) => typeof p[k] === "number" ? p[k] : d;
@@ -1624,6 +2134,10 @@ function layout(node, ui) {
   const w = node.size[0] - M3.padding * 2;
   const { rows } = gridShape(w, Math.max(1, ui.presets.length));
   let y = widgetHeight(node) + M3.gapSection;
+  const previewHeader = { x, y, w, h: HEADER_H2 };
+  y += HEADER_H2 + 6;
+  const preview = { x, y, w, h: PREVIEW_H2 };
+  y += PREVIEW_H2 + M3.gapSection;
   const presetHeader = { x, y, w, h: HEADER_H2 };
   y += HEADER_H2 + 6;
   const strip = { x, y, w, h: rows * CELL_H + (rows - 1) * 6 };
@@ -1632,13 +2146,13 @@ function layout(node, ui) {
   y += HEADER_H2 + 6;
   const hslTabs = { x, y, w: Math.min(w, 220), h: 22 };
   const hslRows = { x, y: y + 26, w, h: HSL_BANDS.length * HSL_ROW_H };
-  return { presetHeader, strip, hslHeader, hslTabs, hslRows };
+  return { previewHeader, preview, presetHeader, strip, hslHeader, hslTabs, hslRows };
 }
 function panelHeight(node, ui) {
   const w = Math.max(200, node.size[0] - M3.padding * 2);
   const { rows } = gridShape(w, Math.max(1, ui.presets.length));
   const strip = rows * CELL_H + (rows - 1) * 6;
-  const base = HEADER_H2 + 6 + strip + M3.gapSection + HEADER_H2 + 6 + M3.padding;
+  const base = HEADER_H2 + 6 + PREVIEW_H2 + M3.gapSection + HEADER_H2 + 6 + strip + M3.gapSection + HEADER_H2 + 6 + M3.padding;
   return base + (ui.hslOpen ? 26 + HSL_BANDS.length * HSL_ROW_H + M3.gapControl : 0);
 }
 function registerLook() {
@@ -1659,16 +2173,25 @@ function registerLook() {
           thumbs: /* @__PURE__ */ new Map(),
           source: null,
           hslOpen: false,
-          hslTab: new Segmented(HSL_AXES.map((a) => ({ id: a, label: a })))
+          hslTab: new Segmented(HSL_AXES.map((a) => ({ id: a, label: a }))),
+          preview: new Preview()
         };
         uis2.set(this, ui);
         fitPanel(this, panelHeight(this, ui), 420);
+        refreshPreview(this);
         void (async () => {
           ui.presets = await loadPresets();
           fitPanel(this, panelHeight(this, ui), 420);
           await loadSource(this, ui);
+          await ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
           this.setDirtyCanvas?.(true, true);
         })();
+        const unsubscribe = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const priorRemoved = this.onRemoved;
+        this.onRemoved = function() {
+          unsubscribe();
+          priorRemoved?.call(this);
+        };
         chainHandler(this, "onResize", function() {
           const needed = panelHeight(this, ui);
           const min = widgetHeight(this) + needed;
@@ -1677,6 +2200,9 @@ function registerLook() {
         chainHandler(this, "onDrawForeground", function(ctx) {
           if (this.flags?.collapsed) return;
           const L = layout(this, ui);
+          sectionHeader(ctx, "Preview", L.previewHeader, BADGE.lut);
+          ui.preview.comparing = isComparing();
+          ui.preview.draw(ctx, L.preview);
           sectionHeader(ctx, "Presets, on your image", L.presetHeader, BADGE.lut);
           drawStrip(ctx, L.strip, this, ui);
           const arrow = ui.hslOpen ? "v" : ">";
@@ -1689,6 +2215,11 @@ function registerLook() {
         chainHandler(this, "onMouseDown", function(e, pos) {
           const L = layout(this, ui);
           const [x, y] = pos;
+          if (hit(L.preview, x, y)) {
+            ui.preview.onPointer(x, L.preview, true);
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
           if (hit(L.hslHeader, x, y)) {
             ui.hslOpen = !ui.hslOpen;
             fitPanel(this, panelHeight(this, ui), 420);
@@ -1700,14 +2231,7 @@ function registerLook() {
             const col = Math.floor((x - L.strip.x) / (cellW + 8));
             const row = Math.floor((y - L.strip.y) / (CELL_H + 6));
             const preset = col >= 0 && col < cols ? ui.presets[row * cols + col] : void 0;
-            if (preset) {
-              const w = getWidget(this, "preset");
-              if (w) {
-                w.value = preset.id;
-                w.callback?.(w.value);
-              }
-              this.setDirtyCanvas?.(true, true);
-            }
+            if (preset) applyPreset(this, preset);
             return true;
           }
           if (ui.hslOpen) {
@@ -1724,6 +2248,7 @@ function registerLook() {
               const v = Math.max(-1, Math.min(1, (x - trackX) / trackW * 2 - 1));
               bands[name][ui.hslTab.selected] = e?.detail === 2 ? 0 : Math.round(v * 100) / 100;
               writeHsl(this, bands);
+              refreshPreview(this);
               return true;
             }
           }
@@ -1735,7 +2260,17 @@ function registerLook() {
       nodeType.prototype.onExecuted = function() {
         const res = onExecuted?.apply(this, arguments);
         const ui = uis2.get(this);
-        if (ui) void loadSource(this, ui);
+        if (ui) {
+          void loadSource(this, ui);
+          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+        }
+        return res;
+      };
+      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
+      nodeType.prototype.onWidgetChanged = function() {
+        const res = onWidgetChanged?.apply(this, arguments);
+        refreshPreview(this);
+        this.setDirtyCanvas?.(true, true);
         return res;
       };
     }
