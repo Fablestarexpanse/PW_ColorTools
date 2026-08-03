@@ -28,8 +28,19 @@ and torch, the CPU samplers agree **exactly at 8-bit**, and the shipped shader
 lands **within one code value at 8-bit** (mean 0.03 over 12k pixels) against
 the reference. `.cube` export falls out of the same lattice for free.
 
-**Hold Alt to compare** against the input, on any node with a preview, and drag
-across the preview to set a wipe.
+**Preview controls**, on any node that has one:
+
+| | |
+|---|---|
+| Hold **Alt** | compare against the input |
+| **Drag** | pan |
+| **Wheel** | zoom about the cursor, up to 16× |
+| **Double-click** | back to fitting the whole image |
+| **Shift-drag** | move the before/after wipe |
+
+The default view fits the *whole* image, letterboxed — not a cropped
+cover-fit, because a preview you cannot see all of is not much use for judging
+a grade on a tall frame.
 
 **Curves that cannot overshoot.** Monotone cubic interpolation
 (Fritsch–Carlson), so no arrangement of control points can produce a ringing
