@@ -1651,14 +1651,39 @@ var Segmented = class {
 };
 
 // src/widgets/layout.ts
+var INTERNAL_WIDGET = /^\$\$/;
+function collapseInternalPreview(node) {
+  for (const w of node.widgets ?? []) {
+    if (!INTERNAL_WIDGET.test(w.name) || w.__pwCollapsed) continue;
+    w.__pwCollapsed = true;
+    w.computeSize = () => [0, -4];
+    w.computedHeight = 0;
+    w.hidden = true;
+  }
+}
 function widgetHeight(node) {
+  const widgets = (node.widgets ?? []).filter(
+    (w) => w.type !== "hidden" && !INTERNAL_WIDGET.test(w.name) && !w.hidden
+  );
+  let bottom = 0;
+  for (const w of widgets) {
+    const y = w.last_y;
+    const h = w.computedHeight ?? w.height ?? PW.metrics.controlHeight;
+    if (Number.isFinite(y)) bottom = Math.max(bottom, y + h);
+  }
+  if (bottom > 0) return bottom;
   const compute = node.computeSize;
   if (typeof compute === "function") {
     const size = compute.call(node);
-    if (Array.isArray(size) && Number.isFinite(size[1])) return size[1];
+    if (Array.isArray(size) && Number.isFinite(size[1])) {
+      let internal = 0;
+      for (const w of node.widgets ?? []) {
+        if (INTERNAL_WIDGET.test(w.name)) internal += w.computedHeight ?? 0;
+      }
+      return Math.max(40, size[1] - internal);
+    }
   }
-  const visible = (node.widgets ?? []).filter((w) => w.type !== "hidden").length;
-  return 40 + visible * (PW.metrics.controlHeight + 4);
+  return 40 + widgets.length * (PW.metrics.controlHeight + 4);
 }
 function fitPanel(node, panelHeight2, minWidth) {
   node.size[0] = Math.max(node.size[0], minWidth);
@@ -1804,6 +1829,7 @@ function registerCurves() {
         };
         chainHandler(this, "onDrawForeground", function(ctx) {
           if (this.flags?.collapsed) return;
+          collapseInternalPreview(this);
           if (ensureHeight(this, HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding, 360)) this.setDirtyCanvas?.(true, true);
           const L = ui.layout(this);
           sectionHeader(ctx, "Curves", L.header, BADGE.lut);
@@ -1935,6 +1961,7 @@ function attachSpatialPreview(nodeType, opts) {
     };
     chainHandler(this, "onDrawForeground", function(ctx) {
       if (this.flags?.collapsed) return;
+      collapseInternalPreview(this);
       if (ensureHeight(this, panelHeight2(), opts.minWidth)) this.setDirtyCanvas?.(true, true);
       const x = M2.padding;
       const w = this.size[0] - M2.padding * 2;
@@ -2411,6 +2438,7 @@ function registerLook() {
         });
         chainHandler(this, "onDrawForeground", function(ctx) {
           if (this.flags?.collapsed) return;
+          collapseInternalPreview(this);
           if (ensureHeight(this, panelHeight(this, ui), 420)) this.setDirtyCanvas?.(true, true);
           const L = layout(this, ui);
           sectionHeader(ctx, "Preview", L.previewHeader, BADGE.lut);

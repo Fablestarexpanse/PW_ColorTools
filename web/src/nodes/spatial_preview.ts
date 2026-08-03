@@ -22,7 +22,7 @@ import { BADGE, PW } from '../theme.ts';
 import { isComparing, onCompareChange } from '../widgets/compare.ts';
 import { headerChip, hit, sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
 import { resetNode } from '../widgets/reset.ts';
-import { ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
+import { collapseInternalPreview, ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
 import { onRunComplete } from '../widgets/run_events.ts';
 
 const M = PW.metrics;
@@ -95,6 +95,7 @@ export function attachSpatialPreview(nodeType: any, opts: SpatialPreviewOptions)
       if ((this as any).flags?.collapsed) return;
       // A workflow saved before this panel existed restores a size that is too
       // short, and it is applied after onConfigure — so enforce it here.
+      collapseInternalPreview(this);
       if (ensureHeight(this, panelHeight(), opts.minWidth)) this.setDirtyCanvas?.(true, true);
       const x = M.padding;
       const w = this.size[0] - M.padding * 2;

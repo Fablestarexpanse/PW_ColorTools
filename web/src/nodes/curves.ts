@@ -21,7 +21,7 @@ import { addResetMenu, resetNode } from '../widgets/reset.ts';
 import { Segmented } from '../widgets/segmented.ts';
 import { BADGE } from '../theme.ts';
 import { headerChip, hit, sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
-import { ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
+import { collapseInternalPreview, ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
 
 /** The live 2D context, for measuring chips during hit tests. */
 const ctx0 = (): Ctx | null => (globalThis as any).app?.canvas?.ctx ?? null;
@@ -212,6 +212,7 @@ export function registerCurves(): void {
 
         chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
           if ((this as any).flags?.collapsed) return;
+          collapseInternalPreview(this);
           if (ensureHeight(this, HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding, 360)) this.setDirtyCanvas?.(true, true);
           const L = ui.layout(this);
           sectionHeader(ctx, 'Curves', L.header, BADGE.lut);

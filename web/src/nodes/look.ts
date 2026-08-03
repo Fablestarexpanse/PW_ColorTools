@@ -21,7 +21,7 @@ import { isComparing, onCompareChange } from '../widgets/compare.ts';
 import { onRunComplete } from '../widgets/run_events.ts';
 import { addResetMenu, resetNode } from '../widgets/reset.ts';
 import { fillPanel, headerChip, hit, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
-import { ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
+import { collapseInternalPreview, ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
 import { Segmented } from '../widgets/segmented.ts';
 
 const M = PW.metrics;
@@ -420,6 +420,7 @@ export function registerLook(): void {
 
         chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
           if ((this as any).flags?.collapsed) return;
+          collapseInternalPreview(this);
           if (ensureHeight(this, panelHeight(this, ui), 420)) this.setDirtyCanvas?.(true, true);
           const L = layout(this, ui);
 
