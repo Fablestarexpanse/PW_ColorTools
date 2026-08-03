@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "presets": [
+    {
+      "id": "none",
+      "name": "None",
+      "description": "No grade. The starting point.",
+      "params": {}
+    },
+    {
+      "id": "warm-portrait",
+      "name": "Warm portrait",
+      "description": "Gentle contrast, lifted shadows, skin pushed warm without going orange.",
+      "params": {
+        "contrast": 0.14, "shadows": 0.22, "highlights": -0.18, "blacks": -0.08,
+        "warmth": 0.22, "vibrance": 0.18, "saturation": 1.02,
+        "hsl": { "orange": { "sat": 0.10, "lum": 0.08 }, "red": { "sat": 0.06 } }
+      }
+    },
+    {
+      "id": "cool-cinematic",
+      "name": "Cool cinematic",
+      "description": "Teal shadows, warm highlights, crushed blacks. The obvious one, done properly.",
+      "params": {
+        "contrast": 0.22, "blacks": -0.30, "shadows": 0.12, "highlights": -0.25,
+        "warmth": 0.10, "tint": -0.06, "saturation": 0.94,
+        "hsl": { "blue": { "sat": 0.28, "hue": -0.20 }, "aqua": { "sat": 0.22 }, "orange": { "sat": 0.14 } }
+      }
+    },
+    {
+      "id": "faded-film",
+      "name": "Faded film",
+      "description": "Lifted blacks, pulled whites, muted colour. Print emulation without the film-stock cosplay.",
+      "params": {
+        "contrast": -0.10, "blacks": 0.26, "whites": -0.18, "shadows": 0.14,
+        "warmth": 0.08, "saturation": 0.86, "vibrance": 0.12,
+        "gradient_map_amount": 0.14, "gradient_map_blend": "soft light",
+        "gradient_map_stops": [[0.0, [0.16, 0.15, 0.20]], [0.5, [0.52, 0.50, 0.48]], [1.0, [0.96, 0.94, 0.86]]]
+      }
+    },
+    {
+      "id": "high-key",
+      "name": "High key",
+      "description": "Bright, open, low contrast. Product shots and clean portraits.",
+      "params": {
+        "exposure": 0.28, "contrast": -0.14, "shadows": 0.34, "blacks": 0.16,
+        "highlights": -0.12, "vibrance": 0.10, "saturation": 0.98
+      }
+    },
+    {
+      "id": "moody-low-key",
+      "name": "Moody low key",
+      "description": "Deep shadows, protected highlights, desaturated except where it counts.",
+      "params": {
+        "exposure": -0.22, "contrast": 0.28, "blacks": -0.34, "shadows": -0.18,
+        "highlights": -0.20, "whites": 0.10, "saturation": 0.88, "vibrance": 0.22,
+        "glow": 0.14
+      }
+    },
+    {
+      "id": "golden-hour",
+      "name": "Golden hour",
+      "description": "Warm highlights and a soft bloom. Flatters almost any outdoor frame.",
+      "params": {
+        "exposure": 0.10, "contrast": 0.12, "highlights": -0.22, "shadows": 0.18,
+        "warmth": 0.34, "tint": 0.06, "vibrance": 0.24,
+        "glow": 0.22, "glow_radius": 34.0, "glow_threshold": 0.60,
+        "hsl": { "yellow": { "sat": 0.18, "lum": 0.10 }, "orange": { "sat": 0.16 } }
+      }
+    },
+    {
+      "id": "bleach-bypass",
+      "name": "Bleach bypass",
+      "description": "High contrast, low saturation, silver highlights. Harsh on purpose.",
+      "params": {
+        "contrast": 0.42, "blacks": -0.24, "whites": 0.22, "highlights": -0.10,
+        "saturation": 0.52, "vibrance": 0.30
+      }
+    }
+  ]
+}

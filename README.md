@@ -5,9 +5,9 @@ rather than broadcast colourists. From **Promptwaffle / BotWaffle Studio**.
 
 ![Before and after](docs/images/before_after.png)
 
-> **Status: in development.** `PW Match Source`, `PW Curves`, `PW Grain` and
-> `PW Palette` are built and tested. `PW Look`, `PW Look I/O`, `PW Optics` and
-> `PW Scopes` are the target shape, not what ships today.
+> **Status: in development.** `PW Look`, `PW Match Source`, `PW Curves`,
+> `PW Grain` and `PW Palette` are built and tested. `PW Look I/O`, `PW Optics`
+> and `PW Scopes` are the target shape, not what ships today.
 
 ---
 
@@ -41,6 +41,40 @@ order-deterministic.
 ---
 
 ## The nodes
+
+### PW Look
+
+<img src="docs/images/pw_look.png" alt="PW Look" width="440">
+
+The main grade panel, in plain language: exposure, contrast, highlights,
+shadows, whites, blacks, warmth, tint, vibrance, saturation and glow. No
+lift/gamma/gain — our audience thinks in Lightroom, not in colour science.
+
+**Presets are rendered on your own image**, not on stock thumbnails. A strip of
+someone else's photos tells you nothing about what a look will do to your frame,
+so the node fetches its cached input and bakes each preset onto it with the same
+lattice code the renderer uses. Presets lead, sliders follow.
+
+Tone adjustments drive OKLab lightness with chroma and hue held, so pushing
+shadows or highlights moves light without moving colour. `vibrance` lifts muted
+colour far more than colour that is already saturated; `saturation` scales
+everything equally.
+
+A collapsible eight-band **colour mixer** (hue, saturation and lightness per
+band) is gated on chroma, so it does not tug at near-neutral pixels whose hue is
+numerically defined but visually meaningless — the usual cause of blotchy skies.
+
+The **gradient map** accepts a `PALETTE` input and builds its ramp
+automatically, ordered dark to light. Its `colour` mode keeps the image's own
+lightness and takes only hue and chroma from the ramp, which is what makes it a
+grading tool rather than a poster filter.
+
+An optional `MASK` restricts the whole grade to a region (white is graded), and
+an optional `reference` image is matched in OKLab before any creative decision.
+
+Everything above bakes into one lattice. **Glow is the exception** — it blurs,
+so it cannot be baked, and the moment it is above zero the node's LOOK is no
+longer `.cube`-exportable. That is stated rather than hidden.
 
 ### PW Curves
 
@@ -139,11 +173,14 @@ flowchart LR
 
   subgraph grade [PW Color]
     direction LR
-    MS[PW Match source]:::pw -- IMAGE --> CU[PW Curves]:::pw
+    MS[PW Match source]:::pw -- IMAGE --> LK[PW Look]:::pw
+    LK -- IMAGE --> CU[PW Curves]:::pw
     CU -- IMAGE --> GR[PW Grain]:::pw
-    MS -- LOOK --> CU
+    MS -- LOOK --> LK
+    LK -- LOOK --> CU
     CU -- LOOK --> GR
-    CU -. IMAGE .-> PA[PW Palette]:::pw
+    LK -. IMAGE .-> PA[PW Palette]:::pw
+    PA -. PALETTE .-> LK
   end
 
   GR -- IMAGE --> SAVE[Save image]
@@ -158,8 +195,16 @@ decode, because it is a repair: it puts the image back where it should have
 been before anything creative happens. Grading a drifted image bakes the drift
 in.
 
+`PW Look` then `PW Curves` is the useful order — set the look, then shape the
+tone response on top of it. Both bake to lattices, so stacking them costs one
+extra resample and nothing else.
+
 `PW Grain` goes last. It is a spatial effect, so it cannot be baked into the
 LUT, and anything applied after it would filter the grain you just added.
+
+The dashed `PW Palette` loop is optional but worth knowing: extract a palette
+from the graded frame, feed it back into `PW Look`'s gradient map, and the ramp
+is built from the image's own colours.
 
 **The `LOOK` wire is optional.** It carries the accumulated grade stack so that
 downstream nodes — and eventually `PW Look I/O` — can inspect, save or bake the

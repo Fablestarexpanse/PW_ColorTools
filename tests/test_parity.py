@@ -53,6 +53,39 @@ LOOK_OPS = [
     },
     {"type": "saturation", "params": {"amount": 1.18}, "strength": 0.8},
     {"type": "warmth", "params": {"amount": -0.4}},
+    # PW Look's own ops: all four tonal bands, the colour controls, a couple of
+    # HSL bands, and a gradient map in the mode that is hardest to get right.
+    {
+        "type": "tone",
+        "params": {
+            "exposure": -0.2,
+            "contrast": 0.18,
+            "blacks": -0.3,
+            "shadows": 0.25,
+            "highlights": -0.35,
+            "whites": 0.15,
+        },
+    },
+    {"type": "colour", "params": {"warmth": 0.3, "tint": -0.15, "vibrance": 0.4, "saturation": 1.1}},
+    {
+        "type": "hsl",
+        "params": {
+            "bands": {
+                "orange": {"hue": 0.3, "sat": -0.25, "lum": 0.15},
+                "blue": {"hue": -0.4, "sat": 0.35, "lum": -0.2},
+                "green": {"sat": -0.5},
+            }
+        },
+    },
+    {
+        "type": "gradient_map",
+        "params": {
+            "amount": 0.35,
+            "blend": "colour",
+            "stops": [[0.0, [0.05, 0.04, 0.12]], [0.5, [0.55, 0.42, 0.38]], [1.0, [0.98, 0.92, 0.78]]],
+        },
+        "strength": 0.7,
+    },
 ]
 
 

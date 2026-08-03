@@ -31,9 +31,10 @@ if _COMFY_AVAILABLE:
 
     class PWColorExtension(ComfyExtension):
         async def get_node_list(self) -> list[type[io.ComfyNode]]:
-            from .pw_color.nodes import curves, grain, match_source, palette, parity
+            from .pw_color.nodes import curves, grain, look, match_source, palette, parity
 
             nodes: list[type[io.ComfyNode]] = []
+            nodes.extend(look.NODES)
             nodes.extend(curves.NODES)
             nodes.extend(grain.NODES)
             nodes.extend(match_source.NODES)

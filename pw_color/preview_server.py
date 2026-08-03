@@ -142,4 +142,22 @@ def register_routes() -> bool:
             {"histogram": entry["histogram"], "width": entry["width"], "height": entry["height"]}
         )
 
+    @routes.get("/pw_color/presets")
+    async def _presets(_request):
+        """Look presets, so the node can bake each one onto the user's own image.
+
+        Served rather than bundled into the JS: presets are data, and a user
+        dropping a file into looks/ should not need a rebuild to see it.
+        """
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parents[1] / "looks" / "presets.json"
+        try:
+            import json
+
+            return web.json_response(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            _log.exception("PW Color: could not read %s", path)
+            return web.json_response({"presets": []})
+
     return True

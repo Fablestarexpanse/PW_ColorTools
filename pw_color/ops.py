@@ -26,7 +26,17 @@ from .curve import eval_curve
 __all__ = ["apply_op", "build_sample_fn", "LUT_SAFE_OPS"]
 
 #: Ops that can be baked into a lattice. Everything not in here is render-only.
-LUT_SAFE_OPS = ("exposure", "contrast", "saturation", "curves", "warmth")
+LUT_SAFE_OPS = (
+    "exposure",
+    "contrast",
+    "saturation",
+    "curves",
+    "warmth",
+    "tone",
+    "colour",
+    "hsl",
+    "gradient_map",
+)
 
 
 def op_exposure(rgb: torch.Tensor, stops: float) -> torch.Tensor:
@@ -115,12 +125,24 @@ def _is_identity(points) -> bool:
     return abs(x0) < 1e-9 and abs(y0) < 1e-9 and abs(x1 - 1.0) < 1e-9 and abs(y1 - 1.0) < 1e-9
 
 
+def _look_ops():
+    """Imported lazily: look.py imports colour, and a module-level import here
+    would make the two files circular the moment look.py wants an op."""
+    from . import look
+
+    return look
+
+
 _DISPATCH = {
     "exposure": lambda rgb, p: op_exposure(rgb, p.get("stops", 0.0)),
     "contrast": lambda rgb, p: op_contrast(rgb, p.get("amount", 0.0), p.get("pivot", 0.18)),
     "saturation": lambda rgb, p: op_saturation(rgb, p.get("amount", 1.0)),
     "warmth": lambda rgb, p: op_warmth(rgb, p.get("amount", 0.0)),
     "curves": op_curves,
+    "tone": lambda rgb, p: _look_ops().op_tone(rgb, p),
+    "colour": lambda rgb, p: _look_ops().op_colour(rgb, p),
+    "hsl": lambda rgb, p: _look_ops().op_hsl(rgb, p),
+    "gradient_map": lambda rgb, p: _look_ops().op_gradient_map(rgb, p),
 }
 
 

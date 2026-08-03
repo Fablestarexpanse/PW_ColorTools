@@ -6,6 +6,7 @@ import { app, warnIfUnsupported } from './comfy.ts';
 import { PW } from './theme.ts';
 import { registerCurves } from './nodes/curves.ts';
 import { registerGrain } from './nodes/grain.ts';
+import { registerLook } from './nodes/look.ts';
 import { registerPalette } from './nodes/palette.ts';
 import { registerParityProbe } from './nodes/parity.ts';
 
@@ -14,13 +15,13 @@ import { registerParityProbe } from './nodes/parity.ts';
  *
  * LiteGraph looks these up by type name at draw time, so setting them once at
  * registration is enough; there is no per-node work. IMAGE and MASK are set
- * too, deliberately — a PW_Look sitting next to a core node should not have two
+ * too, deliberately: a PW_Look sitting next to a core node should not have two
  * different greens for the same wire.
  */
 function registerPortColours(): void {
   const canvas = (app as any).canvas;
   if (!canvas) {
-    console.warn('[PW Color] no canvas at setup — port colours not applied');
+    console.warn('[PW Color] no canvas at setup, port colours not applied');
     return;
   }
   // Frontend 1.4x keeps two maps: one for the wire, one for the socket dot.
@@ -42,5 +43,6 @@ app.registerExtension({
 
 registerCurves();
 registerGrain();
+registerLook();
 registerPalette();
 registerParityProbe();

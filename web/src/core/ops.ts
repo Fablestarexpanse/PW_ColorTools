@@ -17,6 +17,7 @@ import {
   type Vec3,
 } from './colour.ts';
 import { Curve, isIdentity, type CurvePoint } from './curve.ts';
+import { opColour, opGradientMap, opHsl, opTone } from './look_ops.ts';
 
 export interface LookOp {
   type: string;
@@ -134,6 +135,18 @@ export function buildSampleFn(ops: LookOp[]): Evaluator {
         fn = (rgb) => c.apply(rgb);
         break;
       }
+      case 'tone':
+        fn = (rgb) => opTone(rgb, p);
+        break;
+      case 'colour':
+        fn = (rgb) => opColour(rgb, p);
+        break;
+      case 'hsl':
+        fn = (rgb) => opHsl(rgb, p);
+        break;
+      case 'gradient_map':
+        fn = (rgb) => opGradientMap(rgb, p);
+        break;
       default:
         // Unknown or render-only: pass through. LOOK.lut_exportable is what
         // tells the user a .cube export would drop it.

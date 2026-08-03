@@ -711,9 +711,9 @@ function widgetHeight(node) {
   const visible = (node.widgets ?? []).filter((w) => w.type !== "hidden").length;
   return 40 + visible * (PW.metrics.controlHeight + 4);
 }
-function fitPanel(node, panelHeight, minWidth) {
+function fitPanel(node, panelHeight2, minWidth) {
   node.size[0] = Math.max(node.size[0], minWidth);
-  node.size[1] = Math.max(node.size[1], widgetHeight(node) + panelHeight);
+  node.size[1] = Math.max(node.size[1], widgetHeight(node) + panelHeight2);
 }
 
 // src/nodes/curves.ts
@@ -773,7 +773,7 @@ function makeUI(node) {
     { label: "Strength", min: 0, max: 1, neutral: 1, default: 1, step: 0.01, decimals: 2 },
     typeof strengthWidget?.value === "number" ? strengthWidget.value : 1
   );
-  const layout2 = (n) => {
+  const layout3 = (n) => {
     const x = M.padding;
     const w = n.size[0] - M.padding * 2;
     let y = widgetHeight(n) + M.gapSection;
@@ -786,7 +786,7 @@ function makeUI(node) {
     y += editorH + M.gapControl;
     return { header, tabs: tabsR, editor: editorR, strength: { x, y, w, h: ROW_H } };
   };
-  const ui = { editor, tabs, strength, layout: layout2 };
+  const ui = { editor, tabs, strength, layout: layout3 };
   editor.state = readState(node);
   editor.onChange = () => writeState(node, ui);
   return ui;
@@ -974,296 +974,6 @@ function registerGrain() {
       };
     }
   });
-}
-
-// src/nodes/palette.ts
-var M3 = PW.metrics;
-var STRIP_H = 92;
-var BLOCK_H = 44;
-var PANEL_BLOCK = STRIP_H + 22 + M3.gapSection + M3.padding;
-var palettes = /* @__PURE__ */ new WeakMap();
-var toasts = /* @__PURE__ */ new WeakMap();
-var saved = /* @__PURE__ */ new WeakMap();
-function swatchRects(r, n) {
-  if (n === 0) return [];
-  const gap = 4;
-  const w = (r.w - gap * (n - 1)) / n;
-  return Array.from({ length: n }, (_, i) => ({ x: r.x + i * (w + gap), y: r.y, w, h: r.h }));
-}
-function drawPalette(ctx, r, node) {
-  const data = palettes.get(node);
-  if (!data || data.colors.length === 0) {
-    fillPanel(ctx, r, PW.color.well, M3.radiusPanel, PW.color.border);
-    text(ctx, "Run the graph to extract a palette", r.x + r.w / 2, r.y + r.h / 2, {
-      colour: PW.color.textMute,
-      align: "center"
-    });
-    return;
-  }
-  const cells = swatchRects(r, data.colors.length);
-  const peak = Math.max(...data.colors.map((c) => c.coverage), 1e-6);
-  data.colors.forEach((sw, i) => {
-    const c = cells[i];
-    roundRect(ctx, { x: c.x, y: c.y, w: c.w, h: BLOCK_H }, M3.radiusControl);
-    ctx.fillStyle = sw.hex;
-    ctx.fill();
-    ctx.strokeStyle = PW.color.border;
-    ctx.lineWidth = M3.borderHair;
-    ctx.stroke();
-    ctx.font = PW.font.mono;
-    if (ctx.measureText(sw.hex).width <= c.w - 2) {
-      text(ctx, sw.hex, c.x + c.w / 2, c.y + BLOCK_H + 12, {
-        colour: PW.color.textDim,
-        align: "center",
-        font: PW.font.mono
-      });
-    }
-    const barY = c.y + BLOCK_H + 22;
-    fillPanel(ctx, { x: c.x, y: barY, w: c.w, h: 4 }, PW.color.well, 2);
-    fillPanel(ctx, { x: c.x, y: barY, w: c.w * (sw.coverage / peak), h: 4 }, PW.color.accent, 2);
-    text(ctx, `${Math.round(sw.coverage * 100)}%`, c.x + c.w / 2, barY + 14, {
-      colour: PW.color.textMute,
-      align: "center",
-      font: PW.font.mono
-    });
-  });
-}
-function headerChips(ctx, r, node) {
-  const locked = !!String(getWidget(node, "locked")?.value ?? "").trim();
-  const lockLabel = locked ? "unlock" : "lock as target";
-  ctx.font = PW.font.body;
-  const lockW = ctx.measureText(lockLabel).width + 14;
-  const expW = ctx.measureText("export").width + 14;
-  const y = r.y + (r.h - 18) / 2;
-  return {
-    lock: { x: r.x + r.w - lockW, y, w: lockW, h: 18 },
-    exp: { x: r.x + r.w - lockW - expW - 6, y, w: expW, h: 18 },
-    lockLabel
-  };
-}
-function drawHeader(ctx, r, node) {
-  const locked = !!String(getWidget(node, "locked")?.value ?? "").trim();
-  text(ctx, locked ? "Palette (locked)" : "Palette", r.x, r.y + r.h / 2, {
-    colour: locked ? PW.color.accent : PW.color.textDim
-  });
-  const { lock, exp, lockLabel } = headerChips(ctx, r, node);
-  const hasPalette = !!palettes.get(node);
-  fillPanel(ctx, exp, PW.color.chip, M3.radiusControl, PW.color.borderSoft);
-  text(ctx, "export", exp.x + exp.w / 2, r.y + r.h / 2, {
-    colour: hasPalette ? PW.color.textMute : PW.color.borderSoft,
-    align: "center"
-  });
-  fillPanel(ctx, lock, locked ? PW.color.chipActive : PW.color.chip, M3.radiusControl, PW.color.borderSoft);
-  text(ctx, lockLabel, lock.x + lock.w / 2, r.y + r.h / 2, {
-    colour: locked ? PW.color.text : PW.color.textMute,
-    align: "center"
-  });
-}
-function layout(node) {
-  const x = M3.padding;
-  const w = node.size[0] - M3.padding * 2;
-  const y = node.size[1] - STRIP_H - M3.padding - 22;
-  return { header: { x, y, w, h: 18 }, strip: { x, y: y + 22, w, h: STRIP_H } };
-}
-function toGpl(data, name) {
-  const lines = ["GIMP Palette", `Name: ${name}`, `Columns: ${Math.min(data.colors.length, 8)}`, "#"];
-  for (const sw of data.colors) {
-    const r = parseInt(sw.hex.slice(1, 3), 16);
-    const g = parseInt(sw.hex.slice(3, 5), 16);
-    const b = parseInt(sw.hex.slice(5, 7), 16);
-    lines.push(`${String(r).padStart(3)} ${String(g).padStart(3)} ${String(b).padStart(3)}	${sw.hex}`);
-  }
-  return lines.join("\n") + "\n";
-}
-function toAse(data) {
-  const blocks = [];
-  for (const sw of data.colors) {
-    const name = sw.hex + "\0";
-    const bodyLen = 2 + name.length * 2 + 4 + 12 + 2;
-    const buf = new ArrayBuffer(6 + bodyLen);
-    const view = new DataView(buf);
-    let o = 0;
-    view.setUint16(o, 1);
-    o += 2;
-    view.setUint32(o, bodyLen);
-    o += 4;
-    view.setUint16(o, name.length);
-    o += 2;
-    for (let i = 0; i < name.length; i++) {
-      view.setUint16(o, name.charCodeAt(i));
-      o += 2;
-    }
-    for (const ch of "RGB ") {
-      view.setUint8(o, ch.charCodeAt(0));
-      o += 1;
-    }
-    for (let i = 0; i < 3; i++) {
-      view.setFloat32(o, parseInt(sw.hex.slice(1 + i * 2, 3 + i * 2), 16) / 255);
-      o += 4;
-    }
-    view.setUint16(o, 0);
-    blocks.push(buf);
-  }
-  const head = new ArrayBuffer(12);
-  const hv = new DataView(head);
-  for (let i = 0; i < 4; i++) hv.setUint8(i, "ASEF".charCodeAt(i));
-  hv.setUint16(4, 1);
-  hv.setUint16(6, 0);
-  hv.setUint32(8, data.colors.length);
-  return new Blob([head, ...blocks], { type: "application/octet-stream" });
-}
-function download(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-function exportPalette(node, format) {
-  const data = palettes.get(node);
-  if (!data) return;
-  const stamp = (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:T]/g, "-");
-  const name = `pw-palette-${stamp}`;
-  if (format === "ase") {
-    download(toAse(data), `${name}.ase`);
-  } else if (format === "gpl") {
-    download(new Blob([toGpl(data, name)], { type: "text/plain" }), `${name}.gpl`);
-  } else if (format === "txt") {
-    download(new Blob([data.colors.map((c) => c.hex).join("\n") + "\n"], { type: "text/plain" }), `${name}.txt`);
-  } else if (format === "css") {
-    const css = `:root {
-${data.colors.map((c, i) => `  --palette-${i + 1}: ${c.hex};`).join("\n")}
-}
-`;
-    download(new Blob([css], { type: "text/css" }), `${name}.css`);
-  } else {
-    download(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), `${name}.json`);
-  }
-  toast(node, `exported .${format}`);
-}
-var EXPORT_FORMATS = [
-  { id: "json", label: "PW palette (.json) - reopens here" },
-  { id: "ase", label: "Adobe (.ase) - Photoshop, Illustrator" },
-  { id: "gpl", label: "GIMP (.gpl) - GIMP, Krita, Inkscape" },
-  { id: "txt", label: "Hex list (.txt)" },
-  { id: "css", label: "CSS variables (.css)" }
-];
-function toast(node, message) {
-  toasts.set(node, { text: message, until: performance.now() + 1400 });
-  node.setDirtyCanvas?.(true, true);
-}
-async function copyHex(node, hex) {
-  try {
-    await navigator.clipboard.writeText(hex);
-    toast(node, `copied ${hex}`);
-  } catch {
-    toast(node, "clipboard blocked (needs https)");
-  }
-}
-function registerPalette() {
-  app.registerExtension({
-    name: "pw.color.palette",
-    async setup() {
-      api.addEventListener("executed", (e) => {
-        const detail = e?.detail;
-        const node = app.graph?.getNodeById?.(detail?.node);
-        if (!node || node.type !== "PW_Palette") return;
-        const raw = detail?.output?.pw_palette?.[0];
-        if (!raw) return;
-        try {
-          palettes.set(node, typeof raw === "string" ? JSON.parse(raw) : raw);
-          const path = detail?.output?.pw_saved?.[0];
-          if (path) saved.set(node, String(path));
-          else saved.delete(node);
-          node.setDirtyCanvas?.(true, true);
-        } catch {
-        }
-      });
-    },
-    async beforeRegisterNodeDef(nodeType, nodeData) {
-      if (nodeData?.name !== "PW_Palette") return;
-      const onCreated = nodeType.prototype.onNodeCreated;
-      nodeType.prototype.onNodeCreated = function() {
-        const r = onCreated?.apply(this, arguments);
-        const lockedWidget = getWidget(this, "locked");
-        if (lockedWidget) {
-          lockedWidget.type = "hidden";
-          lockedWidget.computeSize = () => [0, -4];
-        }
-        fitPanel(this, PANEL_BLOCK, 360);
-        chainHandler(this, "onDrawForeground", function(ctx) {
-          if (this.flags?.collapsed) return;
-          const L = layout(this);
-          drawHeader(ctx, L.header, this);
-          drawPalette(ctx, L.strip, this);
-          drawSavedHint(ctx, L.strip, this);
-          const t = toasts.get(this);
-          if (t && performance.now() < t.until) {
-            text(ctx, t.text, L.header.x + L.header.w / 2, L.strip.y + L.strip.h + 12, {
-              colour: PW.color.accent,
-              align: "center"
-            });
-          }
-        });
-        chainHandler(this, "onMouseDown", function(e, pos) {
-          const L = layout(this);
-          const [x, y] = pos;
-          const ctx = app.canvas?.ctx;
-          if (!ctx) return false;
-          const { lock, exp } = headerChips(ctx, L.header, this);
-          if (hit(exp, x, y)) {
-            if (!palettes.get(this)) {
-              toast(this, "nothing to export \u2014 run the graph first");
-              return true;
-            }
-            new globalThis.LiteGraph.ContextMenu(
-              EXPORT_FORMATS.map((f) => ({ content: f.label, callback: () => exportPalette(this, f.id) })),
-              { event: e, title: "Export palette" }
-            );
-            return true;
-          }
-          if (hit(lock, x, y)) {
-            const w = getWidget(this, "locked");
-            if (!w) return true;
-            if (String(w.value ?? "").trim()) {
-              w.value = "";
-              toast(this, "unlocked");
-            } else {
-              const data2 = palettes.get(this);
-              if (!data2) {
-                toast(this, "nothing to lock \u2014 run the graph first");
-                return true;
-              }
-              w.value = JSON.stringify(data2);
-              toast(this, "locked");
-            }
-            w.callback?.(w.value);
-            return true;
-          }
-          const data = palettes.get(this);
-          if (data && y >= L.strip.y && y <= L.strip.y + BLOCK_H) {
-            const cells = swatchRects(L.strip, data.colors.length);
-            const i = cells.findIndex((c) => x >= c.x && x <= c.x + c.w);
-            if (i >= 0) {
-              void copyHex(this, data.colors[i].hex);
-              return true;
-            }
-          }
-          return false;
-        });
-        return r;
-      };
-    }
-  });
-}
-function drawSavedHint(ctx, strip, node) {
-  const path = saved.get(node);
-  if (!path) return;
-  const name = path.split(/[\\/]/).pop() ?? path;
-  text(ctx, `saved ${name}`, strip.x, strip.y + strip.h + 12, { colour: PW.color.textMute });
 }
 
 // src/core/lattice.ts
@@ -1501,6 +1211,143 @@ function oklchToOklab(L, c, h) {
   return [L, c * Math.cos(h), c * Math.sin(h)];
 }
 
+// src/core/look_ops.ts
+var HSL_BANDS = [
+  ["red", 0.510228],
+  ["orange", 0.924757],
+  ["yellow", 1.915835],
+  ["green", 2.487012],
+  ["aqua", -2.883826],
+  ["blue", -1.674608],
+  ["purple", -1.153006],
+  ["magenta", -0.552163]
+];
+var BAND_HALF = 0.36;
+var TONE_CENTRES = [0, 0.33, 0.67, 1];
+function smoothstep2(e0, e1, x) {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
+function band(x, centre, half = BAND_HALF) {
+  return smoothstep2(centre - half, centre, x) * (1 - smoothstep2(centre, centre + half, x));
+}
+function opTone(rgb, p) {
+  const exposure = p.exposure ?? 0, contrast = p.contrast ?? 0;
+  let out = [rgb[0], rgb[1], rgb[2]];
+  if (exposure !== 0 || contrast !== 0) {
+    const k = Math.pow(2, exposure);
+    const f = (v) => {
+      let lin = srgbToLinear(v);
+      if (exposure !== 0) lin *= k;
+      if (contrast !== 0) lin = Math.pow(Math.max(lin, 1e-6) / 0.18, 1 + contrast) * 0.18;
+      return linearToSrgb(lin);
+    };
+    out = [f(out[0]), f(out[1]), f(out[2])];
+  }
+  const amounts = [p.blacks ?? 0, p.shadows ?? 0, p.highlights ?? 0, p.whites ?? 0];
+  if (amounts.some((a) => a !== 0)) {
+    const lab = srgbToOklab(out[0], out[1], out[2]);
+    let delta = 0;
+    for (let i = 0; i < 4; i++) {
+      if (amounts[i] !== 0) delta += amounts[i] * 0.25 * band(lab[0], TONE_CENTRES[i]);
+    }
+    out = oklabToSrgb(lab[0] + delta, lab[1], lab[2]);
+  }
+  return out;
+}
+function opColour(rgb, p) {
+  const warmth = p.warmth ?? 0, tint = p.tint ?? 0;
+  const vibrance = p.vibrance ?? 0, saturation = p.saturation ?? 1;
+  if (warmth === 0 && tint === 0 && vibrance === 0 && saturation === 1) return rgb;
+  const lab = srgbToOklab(rgb[0], rgb[1], rgb[2]);
+  const l = lab[0];
+  let a = lab[1], b = lab[2];
+  if (warmth !== 0) b += warmth * 0.1 * l;
+  if (tint !== 0) a += tint * 0.1 * l;
+  if (vibrance !== 0 || saturation !== 1) {
+    const c = Math.sqrt(a * a + b * b);
+    let scale = saturation;
+    if (vibrance !== 0) {
+      const headroom = 1 - Math.min(1, Math.max(0, c / 0.25));
+      scale *= 1 + vibrance * headroom;
+    }
+    if (c > 1e-9) {
+      a *= scale;
+      b *= scale;
+    }
+  }
+  return oklabToSrgb(l, a, b);
+}
+function hueDistance(h, centre) {
+  const d = h - centre;
+  return d - 2 * Math.PI * Math.round(d / (2 * Math.PI));
+}
+function opHsl(rgb, p) {
+  const bands = p.bands ?? {};
+  const active = Object.entries(bands).filter(
+    ([, v]) => v && ((v.hue ?? 0) !== 0 || (v.sat ?? 0) !== 0 || (v.lum ?? 0) !== 0)
+  );
+  if (active.length === 0) return rgb;
+  const lab = srgbToOklab(rgb[0], rgb[1], rgb[2]);
+  const l = lab[0], a = lab[1], b = lab[2];
+  const c = Math.sqrt(a * a + b * b);
+  const h = Math.atan2(b, a);
+  const half = Math.PI / HSL_BANDS.length;
+  const chromaGate = Math.min(1, Math.max(0, c / 0.04));
+  let dHue = 0, satScale = 1, dLum = 0;
+  for (const [name, centre] of HSL_BANDS) {
+    const bandv = bands[name];
+    if (!bandv) continue;
+    const dist = Math.abs(hueDistance(h, centre));
+    const w = (1 - smoothstep2(0, half * 1.6, dist)) * chromaGate;
+    if (bandv.hue) dHue += w * bandv.hue * (Math.PI / 12);
+    if (bandv.sat) satScale *= 1 + w * bandv.sat;
+    if (bandv.lum) dLum += w * bandv.lum * 0.15;
+  }
+  const h2 = h + dHue;
+  const c2 = Math.max(0, c * satScale);
+  return oklabToSrgb(l + dLum, c2 * Math.cos(h2), c2 * Math.sin(h2));
+}
+function opGradientMap(rgb, p) {
+  const stops = p.stops ?? [];
+  const amount = p.amount ?? 0;
+  if (amount <= 0 || stops.length < 2) return rgb;
+  const lab = srgbToOklab(rgb[0], rgb[1], rgb[2]);
+  const l = Math.min(1, Math.max(0, lab[0]));
+  let i = 0;
+  while (i < stops.length - 2 && l >= stops[i + 1][0]) i++;
+  const [p0, c0] = stops[i];
+  const [p1, c1] = stops[i + 1];
+  const t = Math.min(1, Math.max(0, (l - p0) / Math.max(p1 - p0, 1e-9)));
+  const mapped = [
+    c0[0] + (c1[0] - c0[0]) * t,
+    c0[1] + (c1[1] - c0[1]) * t,
+    c0[2] + (c1[2] - c0[2]) * t
+  ];
+  const mode = p.blend ?? "normal";
+  let blended;
+  if (mode === "normal") blended = mapped;
+  else if (mode === "multiply") blended = [rgb[0] * mapped[0], rgb[1] * mapped[1], rgb[2] * mapped[2]];
+  else if (mode === "screen") blended = [0, 1, 2].map((i2) => 1 - (1 - rgb[i2]) * (1 - mapped[i2]));
+  else if (mode === "overlay")
+    blended = [0, 1, 2].map((i2) => rgb[i2] <= 0.5 ? 2 * rgb[i2] * mapped[i2] : 1 - 2 * (1 - rgb[i2]) * (1 - mapped[i2]));
+  else if (mode === "soft light")
+    blended = [0, 1, 2].map((i2) => {
+      const base = rgb[i2], layer = mapped[i2];
+      const d = base <= 0.25 ? ((16 * base - 12) * base + 4) * base : Math.sqrt(Math.max(base, 0));
+      return layer <= 0.5 ? base - (1 - 2 * layer) * base * (1 - base) : base + (2 * layer - 1) * (d - base);
+    });
+  else if (mode === "colour") {
+    const rl = srgbToOklab(mapped[0], mapped[1], mapped[2]);
+    blended = oklabToSrgb(lab[0], rl[1], rl[2]);
+  } else throw new Error(`unknown gradient map blend ${mode}`);
+  return [
+    rgb[0] + (blended[0] - rgb[0]) * amount,
+    rgb[1] + (blended[1] - rgb[1]) * amount,
+    rgb[2] + (blended[2] - rgb[2]) * amount
+  ];
+}
+
 // src/core/ops.ts
 function opExposure(rgb, stops) {
   const k = Math.pow(2, stops);
@@ -1576,6 +1423,18 @@ function buildSampleFn(ops) {
         fn = (rgb) => c.apply(rgb);
         break;
       }
+      case "tone":
+        fn = (rgb) => opTone(rgb, p);
+        break;
+      case "colour":
+        fn = (rgb) => opColour(rgb, p);
+        break;
+      case "hsl":
+        fn = (rgb) => opHsl(rgb, p);
+        break;
+      case "gradient_map":
+        fn = (rgb) => opGradientMap(rgb, p);
+        break;
       default:
         continue;
     }
@@ -1596,6 +1455,623 @@ function buildSampleFn(ops) {
     for (const st of stages) out = st(out);
     return out;
   };
+}
+
+// src/nodes/look.ts
+var M3 = PW.metrics;
+var THUMB_H = 74;
+var THUMB_W = 96;
+var HSL_ROW_H = 22;
+var HEADER_H2 = 18;
+var uis2 = /* @__PURE__ */ new WeakMap();
+var presetCache = null;
+async function loadPresets() {
+  if (presetCache) return presetCache;
+  try {
+    const res = await fetch("/pw_color/presets");
+    if (!res.ok) return presetCache = [];
+    presetCache = (await res.json()).presets ?? [];
+  } catch {
+    presetCache = [];
+  }
+  return presetCache;
+}
+function presetOps(p) {
+  const num2 = (k, d = 0) => typeof p[k] === "number" ? p[k] : d;
+  return [
+    {
+      type: "tone",
+      params: {
+        exposure: num2("exposure"),
+        contrast: num2("contrast"),
+        highlights: num2("highlights"),
+        shadows: num2("shadows"),
+        whites: num2("whites"),
+        blacks: num2("blacks")
+      }
+    },
+    {
+      type: "colour",
+      params: {
+        warmth: num2("warmth"),
+        tint: num2("tint"),
+        vibrance: num2("vibrance"),
+        saturation: num2("saturation", 1)
+      }
+    },
+    { type: "hsl", params: { bands: p.hsl ?? {} } },
+    {
+      type: "gradient_map",
+      params: {
+        amount: num2("gradient_map_amount"),
+        blend: p.gradient_map_blend ?? "colour",
+        stops: p.gradient_map_stops ?? []
+      }
+    }
+  ];
+}
+function buildThumbnails(node, ui) {
+  if (!ui.source) return;
+  const { width, height, data } = ui.source;
+  ui.thumbs.clear();
+  for (const preset of ui.presets) {
+    const cv = document.createElement("canvas");
+    cv.width = width;
+    cv.height = height;
+    const ctx = cv.getContext("2d");
+    const out = ctx.createImageData(width, height);
+    if (preset.id === "none") {
+      out.data.set(data);
+    } else {
+      const lat = Lattice.fromFn(buildSampleFn(presetOps(preset.params)), DEFAULT_SIZE);
+      for (let i = 0; i < data.length; i += 4) {
+        const c = lat.applyImage([data[i] / 255, data[i + 1] / 255, data[i + 2] / 255]);
+        out.data[i] = c[0] * 255;
+        out.data[i + 1] = c[1] * 255;
+        out.data[i + 2] = c[2] * 255;
+        out.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(out, 0, 0);
+    ui.thumbs.set(preset.id, cv);
+  }
+  node.setDirtyCanvas?.(true, true);
+}
+async function loadSource(node, ui) {
+  try {
+    const res = await fetch(`/pw_color/input/${node.id}`);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const bmp = await createImageBitmap(blob);
+    const cv = document.createElement("canvas");
+    cv.width = THUMB_W;
+    cv.height = THUMB_H;
+    const ctx = cv.getContext("2d");
+    const scale = Math.max(THUMB_W / bmp.width, THUMB_H / bmp.height);
+    const w = bmp.width * scale, h = bmp.height * scale;
+    ctx.drawImage(bmp, (THUMB_W - w) / 2, (THUMB_H - h) / 2, w, h);
+    bmp.close();
+    ui.source = ctx.getImageData(0, 0, THUMB_W, THUMB_H);
+    buildThumbnails(node, ui);
+  } catch {
+  }
+}
+function readHsl(node) {
+  const out = {};
+  for (const [name] of HSL_BANDS) out[name] = { hue: 0, sat: 0, lum: 0 };
+  try {
+    const raw = JSON.parse(String(getWidget(node, "hsl")?.value ?? "{}"));
+    for (const [k, v] of Object.entries(raw)) {
+      if (out[k] && v && typeof v === "object") Object.assign(out[k], v);
+    }
+  } catch {
+  }
+  return out;
+}
+function writeHsl(node, bands) {
+  const w = getWidget(node, "hsl");
+  if (!w) return;
+  const trimmed = {};
+  for (const [k, v] of Object.entries(bands)) {
+    if (v.hue || v.sat || v.lum) trimmed[k] = v;
+  }
+  w.value = JSON.stringify(trimmed);
+  node.setDirtyCanvas?.(true, true);
+}
+var HSL_AXES = ["hue", "sat", "lum"];
+function drawHsl(ctx, r, node, ui) {
+  const bands = readHsl(node);
+  const axis = ui.hslTab.selected;
+  const rowW = r.w;
+  HSL_BANDS.forEach(([name, hue], i) => {
+    const y = r.y + i * HSL_ROW_H;
+    const swatchW = 46;
+    const c = 0.11;
+    const rgbCss = oklchCss(0.62, c, hue);
+    fillPanel(ctx, { x: r.x, y: y + 3, w: swatchW, h: HSL_ROW_H - 7 }, rgbCss, M3.radiusControl);
+    text(ctx, name, r.x + swatchW + 8, y + HSL_ROW_H / 2, { colour: PW.color.textDim });
+    const trackX = r.x + swatchW + 62;
+    const trackW = rowW - (swatchW + 62) - 40;
+    const track = { x: trackX, y: y + HSL_ROW_H / 2 - 2, w: trackW, h: 4 };
+    fillPanel(ctx, track, PW.color.well, 2);
+    const v = bands[name][axis] ?? 0;
+    const mid = trackX + trackW / 2;
+    const px = mid + v / 1 * (trackW / 2);
+    if (Math.abs(px - mid) > 0.5) {
+      fillPanel(ctx, { x: Math.min(mid, px), y: track.y, w: Math.abs(px - mid), h: 4 }, PW.color.accent, 2);
+    }
+    ctx.beginPath();
+    ctx.arc(px, track.y + 2, 4, 0, Math.PI * 2);
+    ctx.fillStyle = PW.color.text;
+    ctx.fill();
+    text(ctx, v.toFixed(2), r.x + rowW, y + HSL_ROW_H / 2, {
+      colour: PW.color.textMute,
+      align: "right",
+      font: PW.font.mono
+    });
+  });
+}
+function oklchCss(l, c, h) {
+  return `oklch(${(l * 100).toFixed(1)}% ${c.toFixed(3)} ${(h * 180 / Math.PI).toFixed(1)}deg)`;
+}
+var CELL_H = THUMB_H + 18;
+function gridShape(width, count) {
+  const cols = Math.max(1, Math.floor((width + 8) / (THUMB_W + 8)));
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const cellW = (width - 8 * (cols - 1)) / cols;
+  return { cols, rows, cellW };
+}
+function layout(node, ui) {
+  const x = M3.padding;
+  const w = node.size[0] - M3.padding * 2;
+  const { rows } = gridShape(w, Math.max(1, ui.presets.length));
+  let y = widgetHeight(node) + M3.gapSection;
+  const presetHeader = { x, y, w, h: HEADER_H2 };
+  y += HEADER_H2 + 6;
+  const strip = { x, y, w, h: rows * CELL_H + (rows - 1) * 6 };
+  y += strip.h + M3.gapSection;
+  const hslHeader = { x, y, w, h: HEADER_H2 };
+  y += HEADER_H2 + 6;
+  const hslTabs = { x, y, w: Math.min(w, 220), h: 22 };
+  const hslRows = { x, y: y + 26, w, h: HSL_BANDS.length * HSL_ROW_H };
+  return { presetHeader, strip, hslHeader, hslTabs, hslRows };
+}
+function panelHeight(node, ui) {
+  const w = Math.max(200, node.size[0] - M3.padding * 2);
+  const { rows } = gridShape(w, Math.max(1, ui.presets.length));
+  const strip = rows * CELL_H + (rows - 1) * 6;
+  const base = HEADER_H2 + 6 + strip + M3.gapSection + HEADER_H2 + 6 + M3.padding;
+  return base + (ui.hslOpen ? 26 + HSL_BANDS.length * HSL_ROW_H + M3.gapControl : 0);
+}
+function registerLook() {
+  app.registerExtension({
+    name: "pw.color.look",
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+      if (nodeData?.name !== "PW_Look") return;
+      const onCreated = nodeType.prototype.onNodeCreated;
+      nodeType.prototype.onNodeCreated = function() {
+        const r = onCreated?.apply(this, arguments);
+        const hw = getWidget(this, "hsl");
+        if (hw) {
+          hw.type = "hidden";
+          hw.computeSize = () => [0, -4];
+        }
+        const ui = {
+          presets: [],
+          thumbs: /* @__PURE__ */ new Map(),
+          source: null,
+          hslOpen: false,
+          hslTab: new Segmented(HSL_AXES.map((a) => ({ id: a, label: a })))
+        };
+        uis2.set(this, ui);
+        fitPanel(this, panelHeight(this, ui), 420);
+        void (async () => {
+          ui.presets = await loadPresets();
+          fitPanel(this, panelHeight(this, ui), 420);
+          await loadSource(this, ui);
+          this.setDirtyCanvas?.(true, true);
+        })();
+        chainHandler(this, "onResize", function() {
+          const needed = panelHeight(this, ui);
+          const min = widgetHeight(this) + needed;
+          if (this.size[1] < min) this.size[1] = min;
+        });
+        chainHandler(this, "onDrawForeground", function(ctx) {
+          if (this.flags?.collapsed) return;
+          const L = layout(this, ui);
+          sectionHeader(ctx, "Presets, on your image", L.presetHeader, BADGE.lut);
+          drawStrip(ctx, L.strip, this, ui);
+          const arrow = ui.hslOpen ? "v" : ">";
+          sectionHeader(ctx, `${arrow}  Colour mixer`, L.hslHeader, BADGE.lut);
+          if (ui.hslOpen) {
+            ui.hslTab.draw(ctx, L.hslTabs);
+            drawHsl(ctx, L.hslRows, this, ui);
+          }
+        });
+        chainHandler(this, "onMouseDown", function(e, pos) {
+          const L = layout(this, ui);
+          const [x, y] = pos;
+          if (hit(L.hslHeader, x, y)) {
+            ui.hslOpen = !ui.hslOpen;
+            fitPanel(this, panelHeight(this, ui), 420);
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+          if (hit(L.strip, x, y) && ui.presets.length) {
+            const { cols, cellW } = gridShape(L.strip.w, ui.presets.length);
+            const col = Math.floor((x - L.strip.x) / (cellW + 8));
+            const row = Math.floor((y - L.strip.y) / (CELL_H + 6));
+            const preset = col >= 0 && col < cols ? ui.presets[row * cols + col] : void 0;
+            if (preset) {
+              const w = getWidget(this, "preset");
+              if (w) {
+                w.value = preset.id;
+                w.callback?.(w.value);
+              }
+              this.setDirtyCanvas?.(true, true);
+            }
+            return true;
+          }
+          if (ui.hslOpen) {
+            if (ui.hslTab.onPointerDown(x, y, L.hslTabs)) {
+              this.setDirtyCanvas?.(true, true);
+              return true;
+            }
+            const row = Math.floor((y - L.hslRows.y) / HSL_ROW_H);
+            if (row >= 0 && row < HSL_BANDS.length && x >= L.hslRows.x && x <= L.hslRows.x + L.hslRows.w) {
+              const bands = readHsl(this);
+              const name = HSL_BANDS[row][0];
+              const trackX = L.hslRows.x + 108;
+              const trackW = L.hslRows.w - 148;
+              const v = Math.max(-1, Math.min(1, (x - trackX) / trackW * 2 - 1));
+              bands[name][ui.hslTab.selected] = e?.detail === 2 ? 0 : Math.round(v * 100) / 100;
+              writeHsl(this, bands);
+              return true;
+            }
+          }
+          return false;
+        });
+        return r;
+      };
+      const onExecuted = nodeType.prototype.onExecuted;
+      nodeType.prototype.onExecuted = function() {
+        const res = onExecuted?.apply(this, arguments);
+        const ui = uis2.get(this);
+        if (ui) void loadSource(this, ui);
+        return res;
+      };
+    }
+  });
+}
+function drawStrip(ctx, r, node, ui) {
+  if (!ui.presets.length) {
+    fillPanel(ctx, r, PW.color.well, M3.radiusPanel, PW.color.border);
+    text(ctx, "Loading presets...", r.x + r.w / 2, r.y + r.h / 2, { colour: PW.color.textMute, align: "center" });
+    return;
+  }
+  const current = String(getWidget(node, "preset")?.value ?? "none");
+  const { cols, cellW } = gridShape(r.w, ui.presets.length);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(r.x, r.y, r.w, r.h);
+  ctx.clip();
+  ui.presets.forEach((p, i) => {
+    const col = i % cols, row = Math.floor(i / cols);
+    const x = r.x + col * (cellW + 8);
+    const cell = { x, y: r.y + row * (CELL_H + 6), w: cellW, h: THUMB_H };
+    const thumb = ui.thumbs.get(p.id);
+    if (thumb) {
+      ctx.save();
+      fillPanel(ctx, cell, PW.color.well, M3.radiusControl);
+      ctx.clip();
+      ctx.drawImage(thumb, cell.x, cell.y, cell.w, cell.h);
+      ctx.restore();
+    } else {
+      fillPanel(ctx, cell, PW.color.well, M3.radiusControl);
+      text(ctx, "run once", cell.x + cell.w / 2, cell.y + cell.h / 2, {
+        colour: PW.color.textMute,
+        align: "center"
+      });
+    }
+    ctx.strokeStyle = p.id === current ? PW.color.accent : PW.color.borderSoft;
+    ctx.lineWidth = p.id === current ? 2 : 1;
+    ctx.strokeRect(cell.x + 0.5, cell.y + 0.5, cell.w - 1, cell.h - 1);
+    text(ctx, p.name, cell.x + cell.w / 2, cell.y + THUMB_H + 10, {
+      colour: p.id === current ? PW.color.text : PW.color.textMute,
+      align: "center"
+    });
+  });
+  ctx.restore();
+}
+
+// src/nodes/palette.ts
+var M4 = PW.metrics;
+var STRIP_H = 92;
+var BLOCK_H = 44;
+var PANEL_BLOCK = STRIP_H + 22 + M4.gapSection + M4.padding;
+var palettes = /* @__PURE__ */ new WeakMap();
+var toasts = /* @__PURE__ */ new WeakMap();
+var saved = /* @__PURE__ */ new WeakMap();
+function swatchRects(r, n) {
+  if (n === 0) return [];
+  const gap = 4;
+  const w = (r.w - gap * (n - 1)) / n;
+  return Array.from({ length: n }, (_, i) => ({ x: r.x + i * (w + gap), y: r.y, w, h: r.h }));
+}
+function drawPalette(ctx, r, node) {
+  const data = palettes.get(node);
+  if (!data || data.colors.length === 0) {
+    fillPanel(ctx, r, PW.color.well, M4.radiusPanel, PW.color.border);
+    text(ctx, "Run the graph to extract a palette", r.x + r.w / 2, r.y + r.h / 2, {
+      colour: PW.color.textMute,
+      align: "center"
+    });
+    return;
+  }
+  const cells = swatchRects(r, data.colors.length);
+  const peak = Math.max(...data.colors.map((c) => c.coverage), 1e-6);
+  data.colors.forEach((sw, i) => {
+    const c = cells[i];
+    roundRect(ctx, { x: c.x, y: c.y, w: c.w, h: BLOCK_H }, M4.radiusControl);
+    ctx.fillStyle = sw.hex;
+    ctx.fill();
+    ctx.strokeStyle = PW.color.border;
+    ctx.lineWidth = M4.borderHair;
+    ctx.stroke();
+    ctx.font = PW.font.mono;
+    if (ctx.measureText(sw.hex).width <= c.w - 2) {
+      text(ctx, sw.hex, c.x + c.w / 2, c.y + BLOCK_H + 12, {
+        colour: PW.color.textDim,
+        align: "center",
+        font: PW.font.mono
+      });
+    }
+    const barY = c.y + BLOCK_H + 22;
+    fillPanel(ctx, { x: c.x, y: barY, w: c.w, h: 4 }, PW.color.well, 2);
+    fillPanel(ctx, { x: c.x, y: barY, w: c.w * (sw.coverage / peak), h: 4 }, PW.color.accent, 2);
+    text(ctx, `${Math.round(sw.coverage * 100)}%`, c.x + c.w / 2, barY + 14, {
+      colour: PW.color.textMute,
+      align: "center",
+      font: PW.font.mono
+    });
+  });
+}
+function headerChips(ctx, r, node) {
+  const locked = !!String(getWidget(node, "locked")?.value ?? "").trim();
+  const lockLabel = locked ? "unlock" : "lock as target";
+  ctx.font = PW.font.body;
+  const lockW = ctx.measureText(lockLabel).width + 14;
+  const expW = ctx.measureText("export").width + 14;
+  const y = r.y + (r.h - 18) / 2;
+  return {
+    lock: { x: r.x + r.w - lockW, y, w: lockW, h: 18 },
+    exp: { x: r.x + r.w - lockW - expW - 6, y, w: expW, h: 18 },
+    lockLabel
+  };
+}
+function drawHeader(ctx, r, node) {
+  const locked = !!String(getWidget(node, "locked")?.value ?? "").trim();
+  text(ctx, locked ? "Palette (locked)" : "Palette", r.x, r.y + r.h / 2, {
+    colour: locked ? PW.color.accent : PW.color.textDim
+  });
+  const { lock, exp, lockLabel } = headerChips(ctx, r, node);
+  const hasPalette = !!palettes.get(node);
+  fillPanel(ctx, exp, PW.color.chip, M4.radiusControl, PW.color.borderSoft);
+  text(ctx, "export", exp.x + exp.w / 2, r.y + r.h / 2, {
+    colour: hasPalette ? PW.color.textMute : PW.color.borderSoft,
+    align: "center"
+  });
+  fillPanel(ctx, lock, locked ? PW.color.chipActive : PW.color.chip, M4.radiusControl, PW.color.borderSoft);
+  text(ctx, lockLabel, lock.x + lock.w / 2, r.y + r.h / 2, {
+    colour: locked ? PW.color.text : PW.color.textMute,
+    align: "center"
+  });
+}
+function layout2(node) {
+  const x = M4.padding;
+  const w = node.size[0] - M4.padding * 2;
+  const y = node.size[1] - STRIP_H - M4.padding - 22;
+  return { header: { x, y, w, h: 18 }, strip: { x, y: y + 22, w, h: STRIP_H } };
+}
+function toGpl(data, name) {
+  const lines = ["GIMP Palette", `Name: ${name}`, `Columns: ${Math.min(data.colors.length, 8)}`, "#"];
+  for (const sw of data.colors) {
+    const r = parseInt(sw.hex.slice(1, 3), 16);
+    const g = parseInt(sw.hex.slice(3, 5), 16);
+    const b = parseInt(sw.hex.slice(5, 7), 16);
+    lines.push(`${String(r).padStart(3)} ${String(g).padStart(3)} ${String(b).padStart(3)}	${sw.hex}`);
+  }
+  return lines.join("\n") + "\n";
+}
+function toAse(data) {
+  const blocks = [];
+  for (const sw of data.colors) {
+    const name = sw.hex + "\0";
+    const bodyLen = 2 + name.length * 2 + 4 + 12 + 2;
+    const buf = new ArrayBuffer(6 + bodyLen);
+    const view = new DataView(buf);
+    let o = 0;
+    view.setUint16(o, 1);
+    o += 2;
+    view.setUint32(o, bodyLen);
+    o += 4;
+    view.setUint16(o, name.length);
+    o += 2;
+    for (let i = 0; i < name.length; i++) {
+      view.setUint16(o, name.charCodeAt(i));
+      o += 2;
+    }
+    for (const ch of "RGB ") {
+      view.setUint8(o, ch.charCodeAt(0));
+      o += 1;
+    }
+    for (let i = 0; i < 3; i++) {
+      view.setFloat32(o, parseInt(sw.hex.slice(1 + i * 2, 3 + i * 2), 16) / 255);
+      o += 4;
+    }
+    view.setUint16(o, 0);
+    blocks.push(buf);
+  }
+  const head = new ArrayBuffer(12);
+  const hv = new DataView(head);
+  for (let i = 0; i < 4; i++) hv.setUint8(i, "ASEF".charCodeAt(i));
+  hv.setUint16(4, 1);
+  hv.setUint16(6, 0);
+  hv.setUint32(8, data.colors.length);
+  return new Blob([head, ...blocks], { type: "application/octet-stream" });
+}
+function download(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+function exportPalette(node, format) {
+  const data = palettes.get(node);
+  if (!data) return;
+  const stamp = (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  const name = `pw-palette-${stamp}`;
+  if (format === "ase") {
+    download(toAse(data), `${name}.ase`);
+  } else if (format === "gpl") {
+    download(new Blob([toGpl(data, name)], { type: "text/plain" }), `${name}.gpl`);
+  } else if (format === "txt") {
+    download(new Blob([data.colors.map((c) => c.hex).join("\n") + "\n"], { type: "text/plain" }), `${name}.txt`);
+  } else if (format === "css") {
+    const css = `:root {
+${data.colors.map((c, i) => `  --palette-${i + 1}: ${c.hex};`).join("\n")}
+}
+`;
+    download(new Blob([css], { type: "text/css" }), `${name}.css`);
+  } else {
+    download(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), `${name}.json`);
+  }
+  toast(node, `exported .${format}`);
+}
+var EXPORT_FORMATS = [
+  { id: "json", label: "PW palette (.json) - reopens here" },
+  { id: "ase", label: "Adobe (.ase) - Photoshop, Illustrator" },
+  { id: "gpl", label: "GIMP (.gpl) - GIMP, Krita, Inkscape" },
+  { id: "txt", label: "Hex list (.txt)" },
+  { id: "css", label: "CSS variables (.css)" }
+];
+function toast(node, message) {
+  toasts.set(node, { text: message, until: performance.now() + 1400 });
+  node.setDirtyCanvas?.(true, true);
+}
+async function copyHex(node, hex) {
+  try {
+    await navigator.clipboard.writeText(hex);
+    toast(node, `copied ${hex}`);
+  } catch {
+    toast(node, "clipboard blocked (needs https)");
+  }
+}
+function registerPalette() {
+  app.registerExtension({
+    name: "pw.color.palette",
+    async setup() {
+      api.addEventListener("executed", (e) => {
+        const detail = e?.detail;
+        const node = app.graph?.getNodeById?.(detail?.node);
+        if (!node || node.type !== "PW_Palette") return;
+        const raw = detail?.output?.pw_palette?.[0];
+        if (!raw) return;
+        try {
+          palettes.set(node, typeof raw === "string" ? JSON.parse(raw) : raw);
+          const path = detail?.output?.pw_saved?.[0];
+          if (path) saved.set(node, String(path));
+          else saved.delete(node);
+          node.setDirtyCanvas?.(true, true);
+        } catch {
+        }
+      });
+    },
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+      if (nodeData?.name !== "PW_Palette") return;
+      const onCreated = nodeType.prototype.onNodeCreated;
+      nodeType.prototype.onNodeCreated = function() {
+        const r = onCreated?.apply(this, arguments);
+        const lockedWidget = getWidget(this, "locked");
+        if (lockedWidget) {
+          lockedWidget.type = "hidden";
+          lockedWidget.computeSize = () => [0, -4];
+        }
+        fitPanel(this, PANEL_BLOCK, 360);
+        chainHandler(this, "onDrawForeground", function(ctx) {
+          if (this.flags?.collapsed) return;
+          const L = layout2(this);
+          drawHeader(ctx, L.header, this);
+          drawPalette(ctx, L.strip, this);
+          drawSavedHint(ctx, L.strip, this);
+          const t = toasts.get(this);
+          if (t && performance.now() < t.until) {
+            text(ctx, t.text, L.header.x + L.header.w / 2, L.strip.y + L.strip.h + 12, {
+              colour: PW.color.accent,
+              align: "center"
+            });
+          }
+        });
+        chainHandler(this, "onMouseDown", function(e, pos) {
+          const L = layout2(this);
+          const [x, y] = pos;
+          const ctx = app.canvas?.ctx;
+          if (!ctx) return false;
+          const { lock, exp } = headerChips(ctx, L.header, this);
+          if (hit(exp, x, y)) {
+            if (!palettes.get(this)) {
+              toast(this, "nothing to export \u2014 run the graph first");
+              return true;
+            }
+            new globalThis.LiteGraph.ContextMenu(
+              EXPORT_FORMATS.map((f) => ({ content: f.label, callback: () => exportPalette(this, f.id) })),
+              { event: e, title: "Export palette" }
+            );
+            return true;
+          }
+          if (hit(lock, x, y)) {
+            const w = getWidget(this, "locked");
+            if (!w) return true;
+            if (String(w.value ?? "").trim()) {
+              w.value = "";
+              toast(this, "unlocked");
+            } else {
+              const data2 = palettes.get(this);
+              if (!data2) {
+                toast(this, "nothing to lock \u2014 run the graph first");
+                return true;
+              }
+              w.value = JSON.stringify(data2);
+              toast(this, "locked");
+            }
+            w.callback?.(w.value);
+            return true;
+          }
+          const data = palettes.get(this);
+          if (data && y >= L.strip.y && y <= L.strip.y + BLOCK_H) {
+            const cells = swatchRects(L.strip, data.colors.length);
+            const i = cells.findIndex((c) => x >= c.x && x <= c.x + c.w);
+            if (i >= 0) {
+              void copyHex(this, data.colors[i].hex);
+              return true;
+            }
+          }
+          return false;
+        });
+        return r;
+      };
+    }
+  });
+}
+function drawSavedHint(ctx, strip, node) {
+  const path = saved.get(node);
+  if (!path) return;
+  const name = path.split(/[\\/]/).pop() ?? path;
+  text(ctx, `saved ${name}`, strip.x, strip.y + strip.h + 12, { colour: PW.color.textMute });
 }
 
 // src/nodes/parity.ts
@@ -1646,7 +2122,7 @@ function registerParityProbe() {
 function registerPortColours() {
   const canvas = app.canvas;
   if (!canvas) {
-    console.warn("[PW Color] no canvas at setup \u2014 port colours not applied");
+    console.warn("[PW Color] no canvas at setup, port colours not applied");
     return;
   }
   for (const key of ["default_connection_color_byType", "default_connection_color_byTypeOff"]) {
@@ -1664,5 +2140,6 @@ app.registerExtension({
 });
 registerCurves();
 registerGrain();
+registerLook();
 registerPalette();
 registerParityProbe();
