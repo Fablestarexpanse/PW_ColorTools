@@ -1,0 +1,1627 @@
+{
+  "id": "00000000-0000-0000-0000-000000000000",
+  "revision": 0,
+  "last_node_id": 16,
+  "last_link_id": 16,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "MarkdownNote",
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        420,
+        380
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Start here",
+      "properties": {},
+      "widgets_values": [
+        "## PW Color Tools \u2014 basic chain\n\nReplace **Load Image** with your **VAE Decode** to grade a generation.\n\nOrder matters:\n\n1. **Match source** repairs VAE colour drift *before* anything creative.\n2. **Look** then **Curves** set the grade. Both bake to a LUT.\n3. **Optics** then **Grain** are last: spatial, and grain must not be filtered.\n4. **Scopes** passes through, so it can sit anywhere.\n\nEvery node: right-click or the `reset` chip returns it to pass-through.\nHold **Alt** over a preview to compare against the input."
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [
+        40,
+        740
+      ],
+      "size": [
+        380,
+        314
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            1,
+            2
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "PW_MatchSource",
+      "pos": [
+        520,
+        40
+      ],
+      "size": [
+        340,
+        146
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "original",
+          "name": "original",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "localized_name": "processed",
+          "name": "processed",
+          "type": "IMAGE",
+          "link": 2
+        },
+        {
+          "localized_name": "mask",
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        },
+        {
+          "localized_name": "strength",
+          "name": "strength",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "space",
+          "name": "space",
+          "type": "COMBO",
+          "widget": {
+            "name": "space"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "max_gain",
+          "name": "max_gain",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "max_gain"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            3
+          ]
+        },
+        {
+          "localized_name": "look",
+          "name": "look",
+          "type": "LOOK",
+          "links": [
+            10
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PW_MatchSource"
+      },
+      "widgets_values": [
+        0,
+        "oklab",
+        4
+      ]
+    },
+    {
+      "id": 4,
+      "type": "PW_Look",
+      "pos": [
+        520,
+        260
+      ],
+      "size": [
+        440,
+        1082
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "link": 3
+        },
+        {
+          "localized_name": "palette",
+          "name": "palette",
+          "shape": 7,
+          "type": "PALETTE",
+          "link": null
+        },
+        {
+          "localized_name": "mask",
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        },
+        {
+          "localized_name": "reference",
+          "name": "reference",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "look_in",
+          "name": "look_in",
+          "shape": 7,
+          "type": "LOOK",
+          "link": 10
+        },
+        {
+          "localized_name": "preset",
+          "name": "preset",
+          "type": "COMBO",
+          "widget": {
+            "name": "preset"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "exposure",
+          "name": "exposure",
+          "type": "FLOAT",
+          "widget": {
+            "name": "exposure"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "contrast",
+          "name": "contrast",
+          "type": "FLOAT",
+          "widget": {
+            "name": "contrast"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "highlights",
+          "name": "highlights",
+          "type": "FLOAT",
+          "widget": {
+            "name": "highlights"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "shadows",
+          "name": "shadows",
+          "type": "FLOAT",
+          "widget": {
+            "name": "shadows"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "whites",
+          "name": "whites",
+          "type": "FLOAT",
+          "widget": {
+            "name": "whites"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "blacks",
+          "name": "blacks",
+          "type": "FLOAT",
+          "widget": {
+            "name": "blacks"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "warmth",
+          "name": "warmth",
+          "type": "FLOAT",
+          "widget": {
+            "name": "warmth"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "tint",
+          "name": "tint",
+          "type": "FLOAT",
+          "widget": {
+            "name": "tint"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "vibrance",
+          "name": "vibrance",
+          "type": "FLOAT",
+          "widget": {
+            "name": "vibrance"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "saturation",
+          "name": "saturation",
+          "type": "FLOAT",
+          "widget": {
+            "name": "saturation"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "glow",
+          "name": "glow",
+          "type": "FLOAT",
+          "widget": {
+            "name": "glow"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "strength",
+          "name": "strength",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "glow_radius",
+          "name": "glow_radius",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "glow_radius"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "glow_threshold",
+          "name": "glow_threshold",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "glow_threshold"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "blend",
+          "name": "blend",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "blend"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "hsl",
+          "name": "hsl",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "hsl"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "gradient_map",
+          "name": "gradient_map",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "gradient_map"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "gradient_blend",
+          "name": "gradient_blend",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "gradient_blend"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "reference_strength",
+          "name": "reference_strength",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "reference_strength"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "reference_mode",
+          "name": "reference_mode",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "reference_mode"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "quality",
+          "name": "quality",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "quality"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            4
+          ]
+        },
+        {
+          "localized_name": "look",
+          "name": "look",
+          "type": "LOOK",
+          "links": [
+            11
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PW_Look"
+      },
+      "widgets_values": [
+        "none",
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        24,
+        0.65,
+        "normal",
+        "{}",
+        0,
+        "colour",
+        1,
+        "mean_std",
+        "high"
+      ]
+    },
+    {
+      "id": 5,
+      "type": "PW_Curves",
+      "pos": [
+        1020,
+        260
+      ],
+      "size": [
+        420,
+        596
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "link": 4
+        },
+        {
+          "localized_name": "look_in",
+          "name": "look_in",
+          "shape": 7,
+          "type": "LOOK",
+          "link": 11
+        },
+        {
+          "localized_name": "curves",
+          "name": "curves",
+          "type": "STRING",
+          "widget": {
+            "name": "curves"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "preserve_hue",
+          "name": "preserve_hue",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "preserve_hue"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "strength",
+          "name": "strength",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "preset",
+          "name": "preset",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "preset"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "final_quality",
+          "name": "final_quality",
+          "shape": 7,
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "final_quality"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            5
+          ]
+        },
+        {
+          "localized_name": "look",
+          "name": "look",
+          "type": "LOOK",
+          "links": [
+            12
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PW_Curves"
+      },
+      "widgets_values": [
+        "{\"luma\":[[0.0,0.0],[1.0,1.0]],\"r\":[[0.0,0.0],[1.0,1.0]],\"g\":[[0.0,0.0],[1.0,1.0]],\"b\":[[0.0,0.0],[1.0,1.0]]}",
+        true,
+        1,
+        "none",
+        false
+      ]
+    },
+    {
+      "id": 6,
+      "type": "PW_Optics",
+      "pos": [
+        1500,
+        260
+      ],
+      "size": [
+        400,
+        502
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "link": 5
+        },
+        {
+          "localized_name": "look_in",
+          "name": "look_in",
+          "shape": 7,
+          "type": "LOOK",
+          "link": 12
+        },
+        {
+          "localized_name": "halation",
+          "name": "halation",
+          "type": "FLOAT",
+          "widget": {
+            "name": "halation"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "halation_radius",
+          "name": "halation_radius",
+          "type": "FLOAT",
+          "widget": {
+            "name": "halation_radius"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "halation_threshold",
+          "name": "halation_threshold",
+          "type": "FLOAT",
+          "widget": {
+            "name": "halation_threshold"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "vignette",
+          "name": "vignette",
+          "type": "FLOAT",
+          "widget": {
+            "name": "vignette"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "chromatic_aberration",
+          "name": "chromatic_aberration",
+          "type": "FLOAT",
+          "widget": {
+            "name": "chromatic_aberration"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "vignette_midpoint",
+          "name": "vignette_midpoint",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "vignette_midpoint"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "vignette_feather",
+          "name": "vignette_feather",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "vignette_feather"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "vignette_roundness",
+          "name": "vignette_roundness",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "vignette_roundness"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            6
+          ]
+        },
+        {
+          "localized_name": "look",
+          "name": "look",
+          "type": "LOOK",
+          "links": [
+            13
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PW_Optics"
+      },
+      "widgets_values": [
+        0,
+        28,
+        0.7,
+        0,
+        0,
+        0.5,
+        0.6,
+        1
+      ]
+    },
+    {
+      "id": 7,
+      "type": "PW_Grain",
+      "pos": [
+        1960,
+        260
+      ],
+      "size": [
+        420,
+        838
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "link": 6
+        },
+        {
+          "localized_name": "plate_image",
+          "name": "plate_image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "look_in",
+          "name": "look_in",
+          "shape": 7,
+          "type": "LOOK",
+          "link": 13
+        },
+        {
+          "localized_name": "amount",
+          "name": "amount",
+          "type": "FLOAT",
+          "widget": {
+            "name": "amount"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "size",
+          "name": "size",
+          "type": "FLOAT",
+          "widget": {
+            "name": "size"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "shadows",
+          "name": "shadows",
+          "type": "FLOAT",
+          "widget": {
+            "name": "shadows"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "midtones",
+          "name": "midtones",
+          "type": "FLOAT",
+          "widget": {
+            "name": "midtones"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "highlights",
+          "name": "highlights",
+          "type": "FLOAT",
+          "widget": {
+            "name": "highlights"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "blend",
+          "name": "blend",
+          "type": "COMBO",
+          "widget": {
+            "name": "blend"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "opacity",
+          "name": "opacity",
+          "type": "FLOAT",
+          "widget": {
+            "name": "opacity"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "seed",
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "vary_per_frame",
+          "name": "vary_per_frame",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "vary_per_frame"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "chroma",
+          "name": "chroma",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "chroma"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "plate",
+          "name": "plate",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "plate"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "red",
+          "name": "red",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "red"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "green",
+          "name": "green",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "green"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "blue",
+          "name": "blue",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "blue"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "dither",
+          "name": "dither",
+          "shape": 7,
+          "type": "FLOAT",
+          "widget": {
+            "name": "dither"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            7,
+            15
+          ]
+        },
+        {
+          "localized_name": "look",
+          "name": "look",
+          "type": "LOOK",
+          "links": [
+            14
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PW_Grain"
+      },
+      "widgets_values": [
+        0,
+        1.4,
+        0.2,
+        1,
+        0.1,
+        "overlay",
+        1,
+        3957131205,
+        "randomize",
+        false,
+        0.2,
+        "none",
+        1,
+        1,
+        1.15,
+        0
+      ]
+    },
+    {
+      "id": 8,
+      "type": "PW_Scopes",
+      "pos": [
+        2440,
+        260
+      ],
+      "size": [
+        340,
+        126
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "link": 7
+        },
+        {
+          "localized_name": "mode",
+          "name": "mode",
+          "type": "COMBO",
+          "widget": {
+            "name": "mode"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "width",
+          "name": "width",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "height",
+          "name": "height",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            8
+          ]
+        },
+        {
+          "localized_name": "scope",
+          "name": "scope",
+          "type": "IMAGE",
+          "links": [
+            9
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PW_Scopes"
+      },
+      "widgets_values": [
+        "all",
+        512,
+        256
+      ]
+    },
+    {
+      "id": 9,
+      "type": "PreviewImage",
+      "pos": [
+        2440,
+        440
+      ],
+      "size": [
+        340,
+        246
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 10,
+      "type": "PW_Palette",
+      "pos": [
+        1020,
+        1720
+      ],
+      "size": [
+        420,
+        532
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "link": 15
+        },
+        {
+          "localized_name": "mask",
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        },
+        {
+          "localized_name": "count",
+          "name": "count",
+          "type": "INT",
+          "widget": {
+            "name": "count"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "sort",
+          "name": "sort",
+          "type": "COMBO",
+          "widget": {
+            "name": "sort"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "ignore_near_black",
+          "name": "ignore_near_black",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "ignore_near_black"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "ignore_near_white",
+          "name": "ignore_near_white",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "ignore_near_white"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "weight_by_chroma",
+          "name": "weight_by_chroma",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "weight_by_chroma"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "seed",
+          "name": "seed",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "strip_width",
+          "name": "strip_width",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "strip_width"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "strip_height",
+          "name": "strip_height",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "strip_height"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "strip_labels",
+          "name": "strip_labels",
+          "shape": 7,
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "strip_labels"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "save_as",
+          "name": "save_as",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "save_as"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "save_format",
+          "name": "save_format",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "save_format"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "load",
+          "name": "load",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "load"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "locked",
+          "name": "locked",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "locked"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "palette",
+          "name": "palette",
+          "type": "PALETTE",
+          "links": null
+        },
+        {
+          "localized_name": "hex",
+          "name": "hex",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "localized_name": "swatches",
+          "name": "swatches",
+          "type": "IMAGE",
+          "links": [
+            16
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PW_Palette"
+      },
+      "widgets_values": [
+        5,
+        "coverage",
+        true,
+        true,
+        false,
+        462837487,
+        "randomize",
+        1024,
+        200,
+        true,
+        "",
+        "json",
+        "none",
+        ""
+      ]
+    },
+    {
+      "id": 11,
+      "type": "PreviewImage",
+      "pos": [
+        1500,
+        1720
+      ],
+      "size": [
+        340,
+        246
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 12,
+      "type": "PreviewImage",
+      "pos": [
+        1880,
+        1720
+      ],
+      "size": [
+        340,
+        246
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 13,
+      "type": "PW_LookIO",
+      "pos": [
+        2260,
+        1720
+      ],
+      "size": [
+        340,
+        170
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "look",
+          "name": "look",
+          "shape": 7,
+          "type": "LOOK",
+          "link": 14
+        },
+        {
+          "localized_name": "image",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "save_as",
+          "name": "save_as",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "save_as"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "load",
+          "name": "load",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "load"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "export_cube",
+          "name": "export_cube",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "export_cube"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "cube_size",
+          "name": "cube_size",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "cube_size"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "look",
+          "name": "look",
+          "type": "LOOK",
+          "links": null
+        },
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "localized_name": "report",
+          "name": "report",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PW_LookIO"
+      },
+      "widgets_values": [
+        "",
+        "none",
+        "",
+        "33"
+      ]
+    },
+    {
+      "id": 14,
+      "type": "MarkdownNote",
+      "pos": [
+        2260,
+        1420
+      ],
+      "size": [
+        420,
+        260
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "The LOOK wire",
+      "properties": {},
+      "widgets_values": [
+        "The **look** output carries the accumulated grade stack.\n\nIt is optional \u2014 images flow without it \u2014 but wiring it through means\n**PW Look I/O** can save the whole chain as a `.look`, or bake the\ncolour part to a `.cube`, and tell you exactly which parts a LUT\ncould not carry."
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 15,
+      "type": "MarkdownNote",
+      "pos": [
+        1020,
+        1420
+      ],
+      "size": [
+        660,
+        260
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Analysis",
+      "properties": {},
+      "widgets_values": [
+        "**PW Palette** pulls the colours out of the graded frame.\nIts `palette` output can feed **PW Look**'s gradient map, so the ramp\nis built from the image's own colours.\n\n**PW Scopes** passes the image through untouched and renders a\nhistogram, waveform and RGB parade beside it."
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 16,
+      "type": "MarkdownNote",
+      "pos": [
+        40,
+        460
+      ],
+      "size": [
+        340,
+        240
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Starts neutral",
+      "properties": {},
+      "widgets_values": [
+        "Every control starts at pass-through, so dropping this in changes\nnothing until you move something.\n\nTry a preset on **PW Look** first \u2014 they render on *your* image."
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      3,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      1,
+      "IMAGE"
+    ],
+    [
+      3,
+      3,
+      0,
+      4,
+      0,
+      "IMAGE"
+    ],
+    [
+      4,
+      4,
+      0,
+      5,
+      0,
+      "IMAGE"
+    ],
+    [
+      5,
+      5,
+      0,
+      6,
+      0,
+      "IMAGE"
+    ],
+    [
+      6,
+      6,
+      0,
+      7,
+      0,
+      "IMAGE"
+    ],
+    [
+      7,
+      7,
+      0,
+      8,
+      0,
+      "IMAGE"
+    ],
+    [
+      8,
+      8,
+      0,
+      9,
+      0,
+      "IMAGE"
+    ],
+    [
+      9,
+      8,
+      1,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      10,
+      3,
+      1,
+      4,
+      4,
+      "LOOK"
+    ],
+    [
+      11,
+      4,
+      1,
+      5,
+      1,
+      "LOOK"
+    ],
+    [
+      12,
+      5,
+      1,
+      6,
+      1,
+      "LOOK"
+    ],
+    [
+      13,
+      6,
+      1,
+      7,
+      2,
+      "LOOK"
+    ],
+    [
+      14,
+      7,
+      1,
+      13,
+      0,
+      "LOOK"
+    ],
+    [
+      15,
+      7,
+      0,
+      10,
+      0,
+      "IMAGE"
+    ],
+    [
+      16,
+      10,
+      2,
+      11,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "version": 0.4
+}

@@ -341,7 +341,9 @@ def test_example_workflows_reference_only_nodes_that_exist():
         known |= set(re.findall(r'node_id="(PW_\w+)"', p.read_text(encoding="utf-8")))
     assert known, "found no node ids to check against"
 
-    for wf in sorted(root.glob("examples/*.json")):
+    found = sorted(root.glob("example_workflows/*.json"))
+    assert found, "no example workflows to check"
+    for wf in found:
         doc = json.loads(wf.read_text(encoding="utf-8"))
         used = {n["type"] for n in doc.get("nodes", []) if str(n.get("type", "")).startswith("PW_")}
         stale = sorted(used - known)
@@ -353,7 +355,7 @@ def test_shipped_json_assets_parse():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    for path in sorted(root.glob("looks/**/*.json")) + sorted(root.glob("examples/*.json")):
+    for path in sorted(root.glob("looks/**/*.json")) + sorted(root.glob("example_workflows/*.json")):
         json.loads(path.read_text(encoding="utf-8"))
 
 

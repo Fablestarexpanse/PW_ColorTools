@@ -349,7 +349,32 @@ is built from the image's own colours.
 downstream nodes — and eventually `PW Look I/O` — can inspect, save or bake the
 whole chain to a `.cube`. Images flow whether or not you connect it.
 
-An example workflow is in [`examples/pw_color_basic.json`](examples/pw_color_basic.json).
+### Start from the example workflow
+
+You do not have to build any of that by hand. The pack ships the whole chain
+already wired:
+
+**Workflow → Browse Templates → PW Color Tools**, or drag
+[`example_workflows/pw_color_basic.json`](example_workflows/pw_color_basic.json)
+onto the canvas.
+
+![The example workflow](docs/images/example_workflow.png)
+
+It loads with every node at pass-through, so dropping it in changes nothing
+until you move a control — you are grading up from your own image rather than
+undoing someone else's taste. There is a test that runs the shipped file
+through the real nodes and fails if any of them touches the image on load.
+
+To use it on a generation, delete `Load Image` and wire your `VAE Decode` into
+`PW Match Source`'s `processed` input instead. Everything downstream follows.
+
+Three things worth knowing before you start turning knobs:
+
+- Every node has a `reset` chip in its header. It returns that node to
+  pass-through, not to its defaults — the two are different, and the one you
+  want when you have lost your way is pass-through.
+- Hold **Alt** over any preview to see the input underneath it.
+- The notes on the canvas say the same, so you can delete this page.
 
 ### Data types
 
