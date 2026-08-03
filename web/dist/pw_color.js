@@ -750,6 +750,9 @@ uniform sampler3D u_lut;
 uniform float u_size;     // lattice edge length
 uniform float u_wipe;     // 0 = all original, 1 = all graded
 uniform float u_enabled;  // 0 disables the lattice entirely
+uniform vec2 u_uvScale;   // panel -> image mapping, for fit / zoom
+uniform vec2 u_uvOffset;
+uniform vec3 u_bg;        // shown outside the image, i.e. the letterbox
 
 // Eight-corner trilinear, matching Lattice.applyPoints line for line.
 vec3 sampleLattice(vec3 rgb) {
@@ -778,8 +781,16 @@ vec3 sampleLattice(vec3 rgb) {
 }
 
 void main() {
-  vec3 src = texture(u_image, v_uv).rgb;
+  vec2 uv = v_uv * u_uvScale + u_uvOffset;
+  // Outside the image is the panel background, not a smeared edge pixel:
+  // CLAMP_TO_EDGE would streak the border colour across the letterbox.
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+    outColour = vec4(u_bg, 1.0);
+    return;
+  }
+  vec3 src = texture(u_image, uv).rgb;
   vec3 graded = u_enabled > 0.5 ? clamp(sampleLattice(src), 0.0, 1.0) : src;
+  // The wipe is in panel space, so it stays put while you pan and zoom.
   outColour = vec4(v_uv.x <= u_wipe ? graded : src, 1.0);
 }`;
 var Renderer = class {
@@ -836,7 +847,7 @@ var Renderer = class {
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     gl.useProgram(p);
-    for (const name of ["u_image", "u_lut", "u_size", "u_wipe", "u_enabled"]) {
+    for (const name of ["u_image", "u_lut", "u_size", "u_wipe", "u_enabled", "u_uvScale", "u_uvOffset", "u_bg"]) {
       this.uniforms[name] = gl.getUniformLocation(p, name);
     }
     gl.uniform1i(this.uniforms.u_image, 0);
@@ -862,7 +873,7 @@ var Renderer = class {
     gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB32F, n, n, n, 0, gl.RGB, gl.FLOAT, lattice.data);
     this.lutDigest = digest;
   }
-  render(image, lattice, digest, w, h, wipe) {
+  render(image, lattice, digest, w, h, wipe, uvScale, uvOffset, bg) {
     if (!this.init()) return null;
     const gl = this.gl;
     if (this.canvas.width !== w || this.canvas.height !== h) {
@@ -877,6 +888,9 @@ var Renderer = class {
     gl.uniform1f(this.uniforms.u_size, lattice ? lattice.size : 2);
     gl.uniform1f(this.uniforms.u_enabled, lattice ? 1 : 0);
     gl.uniform1f(this.uniforms.u_wipe, wipe);
+    gl.uniform2f(this.uniforms.u_uvScale, uvScale[0], uvScale[1]);
+    gl.uniform2f(this.uniforms.u_uvOffset, uvOffset[0], uvOffset[1]);
+    gl.uniform3f(this.uniforms.u_bg, bg[0], bg[1], bg[2]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     return this.canvas;
   }
@@ -921,7 +935,14 @@ var Preview = class {
   wipe = 1;
   /** True while the compare key is held. */
   comparing = false;
+  /** 1 fits the whole image in the panel; above that zooms in. */
+  zoom = 1;
+  /** Pan, in units of the visible image width/height. 0 is centred. */
+  panX = 0;
+  panY = 0;
   loading = false;
+  dragging = null;
+  dragFrom = { x: 0, y: 0, panX: 0, panY: 0 };
   /**
    * Pull this node's cached input from the preview route.
    *
@@ -958,16 +979,26 @@ var Preview = class {
       });
       return;
     }
-    const scale = Math.max(r.w / this.source.width, r.h / this.source.height);
-    const dw = Math.round(this.source.width * scale);
-    const dh = Math.round(this.source.height * scale);
+    const { uvScale, uvOffset } = this.view(r);
     const wipe = this.comparing ? 0 : this.wipe;
-    const out = shared().render(this.source, this.lattice, this.digest, dw, dh, wipe);
+    const w = Math.max(1, Math.round(r.w));
+    const h = Math.max(1, Math.round(r.h));
+    const out = shared().render(
+      this.source,
+      this.lattice,
+      this.digest,
+      w,
+      h,
+      wipe,
+      uvScale,
+      uvOffset,
+      hexToRgb(PW.color.well)
+    );
     ctx.save();
     fillPanel(ctx, r, PW.color.well, PW.metrics.radiusPanel);
     ctx.clip();
     if (out) {
-      ctx.drawImage(out, r.x + (r.w - dw) / 2, r.y + (r.h - dh) / 2, dw, dh);
+      ctx.drawImage(out, r.x, r.y, r.w, r.h);
     } else {
       text(ctx, "WebGL2 unavailable", r.x + r.w / 2, r.y + r.h / 2, {
         colour: PW.color.textMute,
@@ -986,15 +1017,112 @@ var Preview = class {
     }
     if (this.comparing) {
       text(ctx, "before", r.x + 8, r.y + 12, { colour: PW.color.accent });
+    } else if (this.zoom > 1.01) {
+      text(ctx, `${this.zoom.toFixed(1)}x`, r.x + r.w - 8, r.y + 12, {
+        colour: PW.color.textMute,
+        align: "right",
+        font: PW.font.mono
+      });
     }
   }
-  /** @returns true if the drag was consumed. */
-  onPointer(x, r, dragging) {
-    if (!dragging || !this.source) return false;
-    this.wipe = Math.min(1, Math.max(0, (x - r.x) / r.w));
+  /**
+   * Map the panel to a region of the image.
+   *
+   * At `zoom` 1 the whole image is visible — **contain**, not cover. Cover fit
+   * crops, and a preview you cannot see all of is not much use for judging a
+   * grade on a portrait frame in a wide panel.
+   */
+  view(r) {
+    const iw = this.source.width;
+    const ih = this.source.height;
+    const fit = Math.min(r.w / iw, r.h / ih);
+    const s = fit * this.zoom;
+    const sx = r.w / (iw * s);
+    const sy = r.h / (ih * s);
+    return {
+      uvScale: [sx, sy],
+      uvOffset: [(1 - sx) / 2 - this.panX * sx, (1 - sy) / 2 - this.panY * sy]
+    };
+  }
+  /** Keep at least part of the image on screen when panning. */
+  clampPan(r) {
+    const { uvScale } = this.view(r);
+    const limitX = uvScale[0] >= 1 ? 0 : (1 - uvScale[0]) / (2 * uvScale[0]);
+    const limitY = uvScale[1] >= 1 ? 0 : (1 - uvScale[1]) / (2 * uvScale[1]);
+    this.panX = Math.min(limitX, Math.max(-limitX, this.panX));
+    this.panY = Math.min(limitY, Math.max(-limitY, this.panY));
+  }
+  /** Back to showing the whole image. */
+  resetView() {
+    this.zoom = 1;
+    this.panX = 0;
+    this.panY = 0;
+  }
+  /**
+   * @returns true if the press was consumed.
+   *
+   * Plain drag pans — the hand tool, and the thing you reach for most. Shift
+   * drags the wipe, which is a deliberate act rather than something you want
+   * to trigger by accident while looking around a zoomed image.
+   */
+  onPointerDown(x, y, r, shift, doubleClick) {
+    if (!this.source) return false;
+    if (doubleClick) {
+      this.resetView();
+      return true;
+    }
+    this.dragging = shift ? "wipe" : "pan";
+    this.dragFrom = { x, y, panX: this.panX, panY: this.panY };
+    if (this.dragging === "wipe") this.wipe = Math.min(1, Math.max(0, (x - r.x) / r.w));
+    return true;
+  }
+  onPointerMove(x, y, r) {
+    if (!this.dragging || !this.source) return false;
+    if (this.dragging === "wipe") {
+      this.wipe = Math.min(1, Math.max(0, (x - r.x) / r.w));
+      return true;
+    }
+    const { uvScale } = this.view(r);
+    this.panX = this.dragFrom.panX + (x - this.dragFrom.x) / r.w * uvScale[0];
+    this.panY = this.dragFrom.panY + (y - this.dragFrom.y) / r.h * uvScale[1];
+    this.clampPan(r);
+    return true;
+  }
+  onPointerUp() {
+    const was = this.dragging !== null;
+    this.dragging = null;
+    return was;
+  }
+  /** Wheel zoom about the cursor, so the pixel under it stays put. */
+  onWheel(x, y, r, delta) {
+    if (!this.source) return false;
+    const before = this.view(r);
+    const prev = this.zoom;
+    this.zoom = Math.min(16, Math.max(1, this.zoom * (delta < 0 ? 1.15 : 1 / 1.15)));
+    if (this.zoom === prev) return false;
+    if (this.zoom <= 1.001) {
+      this.resetView();
+      return true;
+    }
+    const tx = (x - r.x) / r.w;
+    const ty = (y - r.y) / r.h;
+    const uvx = tx * before.uvScale[0] + before.uvOffset[0];
+    const uvy = ty * before.uvScale[1] + before.uvOffset[1];
+    const after = this.view(r);
+    this.panX += (tx * after.uvScale[0] + after.uvOffset[0] - uvx) / after.uvScale[0];
+    this.panY += (ty * after.uvScale[1] + after.uvOffset[1] - uvy) / after.uvScale[1];
+    this.clampPan(r);
     return true;
   }
 };
+function hexToRgb(hex) {
+  const v = hex.replace("#", "");
+  return [
+    parseInt(v.slice(0, 2), 16) / 255,
+    parseInt(v.slice(2, 4), 16) / 255,
+    parseInt(v.slice(4, 6), 16) / 255
+  ];
+}
 
 // src/core/colour.ts
 var SRGB_LINEAR_CUTOFF = 31308e-7;
@@ -1813,7 +1941,7 @@ function registerCurves() {
             return true;
           }
           if (hit(L.preview, x, y)) {
-            ui.preview.onPointer(x, L.preview, true);
+            ui.preview.onPointerDown(x, y, L.preview, shift, e?.detail === 2);
             this.setDirtyCanvas?.(true, true);
             return true;
           }
@@ -1824,9 +1952,25 @@ function registerCurves() {
           }
           return false;
         });
+        chainHandler(this, "onMouseWheel", function(e, pos) {
+          const L = ui.layout(this);
+          if (!hit(L.preview, pos[0], pos[1])) return false;
+          const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
+          if (ui.preview.onWheel(pos[0], pos[1], L.preview, delta)) {
+            e?.preventDefault?.();
+            e?.stopPropagation?.();
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+          return false;
+        });
         chainHandler(this, "onMouseMove", function(e, pos) {
           const L = ui.layout(this);
           const shift = !!e?.shiftKey;
+          if (ui.preview.onPointerMove(pos[0], pos[1], L.preview)) {
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
           if (ui.strength.onPointerMove(pos[0], pos[1], L.strength, shift)) {
             syncStrength(this, ui);
             ui.rebake(this);
@@ -1841,8 +1985,9 @@ function registerCurves() {
         chainHandler(this, "onMouseUp", function() {
           const a = ui.strength.onPointerUp();
           const b = ui.editor.onPointerUp();
-          if (a || b) this.setDirtyCanvas?.(true, true);
-          return a || b;
+          const c = ui.preview.onPointerUp();
+          if (a || b || c) this.setDirtyCanvas?.(true, true);
+          return a || b || c;
         });
         void loadHistogram(this, ui);
         return r;
@@ -2314,7 +2459,7 @@ function registerLook() {
           const L = layout(this, ui);
           const [x, y] = pos;
           if (hit(L.preview, x, y)) {
-            ui.preview.onPointer(x, L.preview, true);
+            ui.preview.onPointerDown(x, y, L.preview, !!e?.shiftKey, e?.detail === 2);
             this.setDirtyCanvas?.(true, true);
             return true;
           }
@@ -2349,6 +2494,33 @@ function registerLook() {
               refreshPreview(this);
               return true;
             }
+          }
+          return false;
+        });
+        chainHandler(this, "onMouseMove", function(_e, pos) {
+          const L = layout(this, ui);
+          if (ui.preview.onPointerMove(pos[0], pos[1], L.preview)) {
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+          return false;
+        });
+        chainHandler(this, "onMouseUp", function() {
+          if (ui.preview.onPointerUp()) {
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+          return false;
+        });
+        chainHandler(this, "onMouseWheel", function(e, pos) {
+          const L = layout(this, ui);
+          if (!hit(L.preview, pos[0], pos[1])) return false;
+          const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
+          if (ui.preview.onWheel(pos[0], pos[1], L.preview, delta)) {
+            e?.preventDefault?.();
+            e?.stopPropagation?.();
+            this.setDirtyCanvas?.(true, true);
+            return true;
           }
           return false;
         });

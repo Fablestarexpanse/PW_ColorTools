@@ -432,7 +432,7 @@ export function registerLook(): void {
           const [x, y] = pos;
 
           if (hit(L.preview, x, y)) {
-            ui.preview.onPointer(x, L.preview, true);
+            ui.preview.onPointerDown(x, y, L.preview, !!e?.shiftKey, e?.detail === 2);
             this.setDirtyCanvas?.(true, true);
             return true;
           }
@@ -468,6 +468,36 @@ export function registerLook(): void {
               refreshPreview(this);
               return true;
             }
+          }
+          return false;
+        });
+
+        chainHandler(this, 'onMouseMove', function (this: NodeLike, _e: any, pos: [number, number]) {
+          const L = layout(this, ui);
+          if (ui.preview.onPointerMove(pos[0], pos[1], L.preview)) {
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+          return false;
+        });
+
+        chainHandler(this, 'onMouseUp', function (this: NodeLike) {
+          if (ui.preview.onPointerUp()) {
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+          return false;
+        });
+
+        chainHandler(this, 'onMouseWheel', function (this: NodeLike, e: any, pos: [number, number]) {
+          const L = layout(this, ui);
+          if (!hit(L.preview, pos[0], pos[1])) return false;
+          const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
+          if (ui.preview.onWheel(pos[0], pos[1], L.preview, delta)) {
+            e?.preventDefault?.();
+            e?.stopPropagation?.();
+            this.setDirtyCanvas?.(true, true);
+            return true;
           }
           return false;
         });

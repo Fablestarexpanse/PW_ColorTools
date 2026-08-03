@@ -45,6 +45,8 @@ export interface NodeLike {
   onMouseDown?: (...args: any[]) => any;
   onMouseMove?: (...args: any[]) => any;
   onMouseUp?: (...args: any[]) => any;
+  /** Wheel over the node body. Present on LiteGraph nodes in frontend 1.4x. */
+  onMouseWheel?: (...args: any[]) => any;
   onResize?: (...args: any[]) => any;
   onDrawForeground?: (...args: any[]) => any;
 }

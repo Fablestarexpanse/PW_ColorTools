@@ -265,7 +265,7 @@ export function registerCurves(): void {
             return true;
           }
           if (hit(L.preview, x, y)) {
-            ui.preview.onPointer(x, L.preview, true);
+            ui.preview.onPointerDown(x, y, L.preview, shift, e?.detail === 2);
             this.setDirtyCanvas?.(true, true);
             return true;
           }
@@ -282,9 +282,26 @@ export function registerCurves(): void {
           return false;
         });
 
+        chainHandler(this, 'onMouseWheel', function (this: NodeLike, e: any, pos: [number, number]) {
+          const L = ui.layout(this);
+          if (!hit(L.preview, pos[0], pos[1])) return false;
+          const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
+          if (ui.preview.onWheel(pos[0], pos[1], L.preview, delta)) {
+            e?.preventDefault?.();
+            e?.stopPropagation?.();
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
+          return false;
+        });
+
         chainHandler(this, 'onMouseMove', function (this: NodeLike, e: any, pos: [number, number]) {
           const L = ui.layout(this);
           const shift = !!e?.shiftKey;
+          if (ui.preview.onPointerMove(pos[0], pos[1], L.preview)) {
+            this.setDirtyCanvas?.(true, true);
+            return true;
+          }
           if (ui.strength.onPointerMove(pos[0], pos[1], L.strength, shift)) {
             syncStrength(this, ui);
             ui.rebake(this);
@@ -300,8 +317,9 @@ export function registerCurves(): void {
         chainHandler(this, 'onMouseUp', function (this: NodeLike) {
           const a = ui.strength.onPointerUp();
           const b = ui.editor.onPointerUp();
-          if (a || b) this.setDirtyCanvas?.(true, true);
-          return a || b;
+          const c = ui.preview.onPointerUp();
+          if (a || b || c) this.setDirtyCanvas?.(true, true);
+          return a || b || c;
         });
 
         void loadHistogram(this, ui);
