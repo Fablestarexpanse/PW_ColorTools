@@ -39,12 +39,13 @@ if _COMFY_AVAILABLE:
                 match_source,
                 optics,
                 palette,
-                parity,
                 scopes,
             )
 
+            # Order here is the order they appear in the Add Node menu, which is
+            # roughly the order they belong in a chain.
             nodes: list[type[io.ComfyNode]] = []
-            for module in (look, curves, grain, optics, match_source, palette, scopes, look_io, parity):
+            for module in (look, curves, grain, optics, match_source, palette, scopes, look_io):
                 nodes.extend(module.NODES)
             return nodes
 

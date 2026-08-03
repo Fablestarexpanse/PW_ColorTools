@@ -1,19 +1,19 @@
 [project]
-name = "comfyui_pw_color"
-description = "PW Color - colour nodes for ComfyUI built for artists, illustrators and photographers: monotonic curves with hue preservation, film grain with tonal response, palette extraction in OKLab, VAE round-trip colour matching, and a look system that bakes to .cube. Preview and render are the same pixels."
-version = "0.1.0"
+name = "pw_colortools"
+description = "PW Color Tools - colour nodes for ComfyUI built for artists, illustrators and photographers: a plain-language grade panel, monotonic curves with hue preservation, film grain with tonal response, halation and vignette, palette extraction in OKLab, VAE round-trip colour matching, scopes, and a look system that bakes to .cube. Preview and render are the same pixels."
+version = "1.0.0"
 license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.urls]
-Repository = "https://github.com/Fablestarexpanse/ComfyUI-PW-Color"
+Repository = "https://github.com/Fablestarexpanse/PW_ColorTools"
 
 [tool.comfy]
 PublisherId = "fablestarexpanse"
-DisplayName = "PW Color"
-Icon = ""
+DisplayName = "PW Color Tools"
+Icon = "https://raw.githubusercontent.com/Fablestarexpanse/PW_ColorTools/main/docs/images/icon.png"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

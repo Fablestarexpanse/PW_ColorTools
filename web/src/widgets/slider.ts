@@ -122,7 +122,7 @@ export class Slider {
     const onKnob = Math.abs(x - knobX) <= PW.metrics.hitSlop && Math.abs(y - (track.y + track.h / 2)) <= PW.metrics.hitSlop;
     if (!onKnob && !hit(track, x, y, PW.metrics.hitSlop)) return false;
 
-    if (now - this.lastClick < 300) {
+    if (now - this.lastClick < PW.interaction.doubleClickMs) {
       this.value = this.spec.default;
       this.lastClick = 0;
       return true;
@@ -155,10 +155,5 @@ export class Slider {
 
   get isDragging(): boolean {
     return this.dragging;
-  }
-
-  /** Hit region for the numeric readout, for click-to-type. */
-  valueRect(r: Rect): Rect {
-    return { x: r.x + r.w - VALUE_W, y: r.y, w: VALUE_W, h: r.h };
   }
 }

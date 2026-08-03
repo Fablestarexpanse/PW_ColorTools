@@ -233,7 +233,7 @@ export class CurveEditor {
       return true;
     }
 
-    if (now - this.lastClickTime < 300 && idx < 0) {
+    if (now - this.lastClickTime < PW.interaction.doubleClickMs && idx < 0) {
       this.resetChannel();
       this.lastClickTime = 0;
       return true;

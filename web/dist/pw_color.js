@@ -109,13 +109,16 @@ var PW = {
   /**
    * Drag modifiers. Centralised so every control behaves the same way — the
    * moment one canvas invents its own fine-adjust ratio, muscle memory breaks.
+   *
+   * Only settings that are actually wired up live here. A constant describing
+   * behaviour the pack does not have is worse than no constant: it reads as
+   * implemented. Hold-to-compare is on the roadmap, not in this object.
    */
   interaction: {
+    /** Shift-drag multiplier, used by every slider and the curve editor. */
     fineDragScale: 0.15,
-    // shift-drag
-    doubleClickResets: true,
-    /** Hold-to-compare key. Held, not toggled: comparison is a glance. */
-    compareKey: "Alt"
+    /** Milliseconds within which a second press counts as a double click. */
+    doubleClickMs: 300
   }
 };
 var BADGE = {
@@ -458,7 +461,7 @@ var CurveEditor = class {
       this.changed();
       return true;
     }
-    if (now - this.lastClickTime < 300 && idx < 0) {
+    if (now - this.lastClickTime < PW.interaction.doubleClickMs && idx < 0) {
       this.resetChannel();
       this.lastClickTime = 0;
       return true;
@@ -667,7 +670,7 @@ var Slider = class {
     const knobX = this.toPixel(this.value, track);
     const onKnob = Math.abs(x - knobX) <= PW.metrics.hitSlop && Math.abs(y - (track.y + track.h / 2)) <= PW.metrics.hitSlop;
     if (!onKnob && !hit(track, x, y, PW.metrics.hitSlop)) return false;
-    if (now - this.lastClick < 300) {
+    if (now - this.lastClick < PW.interaction.doubleClickMs) {
       this.value = this.spec.default;
       this.lastClick = 0;
       return true;
@@ -694,10 +697,6 @@ var Slider = class {
   }
   get isDragging() {
     return this.dragging;
-  }
-  /** Hit region for the numeric readout, for click-to-type. */
-  valueRect(r) {
-    return { x: r.x + r.w - VALUE_W, y: r.y, w: VALUE_W, h: r.h };
   }
 };
 
@@ -978,7 +977,6 @@ function registerGrain() {
 
 // src/core/lattice.ts
 var DEFAULT_SIZE = 33;
-var FINAL_SIZE = 65;
 var OUT_MIN = -0.5;
 var OUT_MAX = 2;
 var Lattice = class _Lattice {
@@ -2074,50 +2072,6 @@ function drawSavedHint(ctx, strip, node) {
   text(ctx, `saved ${name}`, strip.x, strip.y + strip.h + 12, { colour: PW.color.textMute });
 }
 
-// src/nodes/parity.ts
-function bake(node) {
-  const lookW = getWidget(node, "look_json");
-  const outW = getWidget(node, "js_lattice");
-  const finalW = getWidget(node, "final_quality");
-  if (!lookW || !outW) return;
-  let ops;
-  try {
-    ops = JSON.parse(String(lookW.value)).ops ?? [];
-  } catch {
-    outW.value = "";
-    return;
-  }
-  const size = finalW?.value ? FINAL_SIZE : DEFAULT_SIZE;
-  const t0 = performance.now();
-  const lattice = Lattice.fromFn(buildSampleFn(ops), size);
-  outW.value = JSON.stringify(lattice.toTransport("u16"));
-  console.debug(`[PW Color] baked ${size}\xB3 lattice in ${(performance.now() - t0).toFixed(1)}ms`);
-}
-function registerParityProbe() {
-  app.registerExtension({
-    name: "pw.color.parity",
-    async beforeRegisterNodeDef(nodeType, nodeData) {
-      if (nodeData?.name !== "PW_ParityProbe") return;
-      const onCreated = nodeType.prototype.onNodeCreated;
-      nodeType.prototype.onNodeCreated = function() {
-        const r = onCreated?.apply(this, arguments);
-        for (const name of ["look_json", "final_quality"]) {
-          const w = getWidget(this, name);
-          if (!w) continue;
-          const prev = w.callback;
-          w.callback = (v) => {
-            const out = prev?.call(w, v);
-            bake(this);
-            return out;
-          };
-        }
-        bake(this);
-        return r;
-      };
-    }
-  });
-}
-
 // src/index.ts
 function registerPortColours() {
   const canvas = app.canvas;
@@ -2142,4 +2096,3 @@ registerCurves();
 registerGrain();
 registerLook();
 registerPalette();
-registerParityProbe();

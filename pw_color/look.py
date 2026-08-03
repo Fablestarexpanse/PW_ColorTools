@@ -146,10 +146,11 @@ def op_colour(rgb: torch.Tensor, p: dict[str, Any]) -> torch.Tensor:
             # boost for colours already at the edge of the gamut.
             headroom = (1.0 - (c / 0.25).clamp(0.0, 1.0))
             scale = scale * (1.0 + vibrance * headroom)
-        safe = c.clamp(min=1e-9)
-        a = a * torch.where(c > 1e-9, scale, torch.ones_like(scale))
-        b = b * torch.where(c > 1e-9, scale, torch.ones_like(scale))
-        del safe
+        # Guard on chroma so a pure neutral (a == b == 0) is untouched rather
+        # than multiplied by a scale it has no direction to apply.
+        live = torch.where(c > 1e-9, scale, torch.ones_like(scale))
+        a = a * live
+        b = b * live
 
     return colour.oklab_to_srgb(torch.stack((l, a, b), dim=-1))
 

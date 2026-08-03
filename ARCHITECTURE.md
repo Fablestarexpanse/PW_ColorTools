@@ -240,6 +240,40 @@ Density is normalised per column and raised to ~0.45; histograms use ~0.4.
 Linear makes a normal photograph one spike and a flat line, log makes three
 stray pixels look like a tonal region.
 
+## Bugs the audit found
+
+Recorded because each one is a class of mistake that will recur, and each now
+has a test that fails if it does.
+
+**Blur crashed on small images.** `reflect` padding raises if the pad exceeds
+the dimension being padded, so any blur whose kernel outgrew the frame threw a
+`RuntimeError` instead of blurring. A 200px halation radius on a 128px image is
+a perfectly reasonable request. There were also three copies of the same
+Gaussian, all carrying the bug. Now one implementation in `pw_color/blur.py`
+that clamps the kernel per axis to what the image supports — once the kernel is
+as wide as the frame the result is already the frame's mean, so nothing is lost.
+
+**The lattice dragged images off the GPU.** `Lattice.apply` moved the *image* to
+the lattice's device, and lattices are baked on the CPU. A CUDA image was
+silently pulled to host memory, and everything downstream ran on the CPU too.
+The lattice is 430 KB and a 4K image is hundreds of megabytes, so it was exactly
+backwards. It now moves the lattice to the image, and preserves the image's
+dtype rather than promoting half precision to float32.
+
+**A dangling import broke the web build.** Removing the parity node left an
+import in `index.ts`; `tsc` and `esbuild` both failed, and no test noticed
+because nothing touched the bundle. `tests/test_build.py` now rebuilds the
+bundle and byte-compares it against the committed one, which also catches the
+more likely version of this: editing TypeScript and forgetting `npm run build`
+while `dist/` is checked in.
+
+The cross-cutting suite in `tests/test_audit.py` is what surfaced the first two.
+It runs every image operation against degenerate inputs — 1×1 frames, single
+rows and columns, pure black, pure white, hard edges — and asserts range,
+finiteness, alpha passthrough, batch independence, input immutability and
+determinism. Most of those properties were true already; the point is that they
+now stay true.
+
 ## ComfyUI specifics
 
 Verified against **ComfyUI 0.29.2 / comfyui-frontend-package 1.47.11**.

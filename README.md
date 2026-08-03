@@ -232,7 +232,9 @@ That works because every op in a LOOK records whether it is LUT-safe as it is
 created, rather than the exporter guessing after the fact.
 
 `.look` files are canonical JSON, so an unchanged look writes a byte-identical
-file and diffs stay readable.
+file and diffs stay readable. Seven presets ship as `.look` files, generated
+from the same data the node's preset strip uses, so Look I/O is useful before
+you have saved anything of your own.
 
 ---
 
@@ -374,6 +376,23 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before touching `pw_color/lattice.py` or
 not, and which approaches were measured and rejected.
 
 ---
+
+## Not built yet
+
+Honest about what is missing, so nobody installs this expecting it:
+
+- **A live image preview.** The lattice architecture exists so that a preview
+  can be exact, and the parity is proven in CI — but the WebGL preview surface
+  itself is not built. PW Curves shows a histogram, not your image; PW Look
+  shows preset thumbnails, not a live result as you drag a slider.
+- **Hold-to-compare** against a node's input.
+- **Click a numeric readout to type a value.** Drag and shift-drag work;
+  typing does not.
+- **Hue-range tabs** on PW Curves.
+- **Shipped grain plates.** The plate machinery works and takes any image;
+  there just are not any in `grain/` yet.
+- **Reference matching tier two** — a least-squares tone curve plus 3×3 matrix.
+  Tier one, mean/std matching in OKLab, is what ships.
 
 ## Not in scope
 

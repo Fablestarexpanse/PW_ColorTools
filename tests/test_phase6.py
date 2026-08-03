@@ -70,7 +70,10 @@ def test_list_saved_is_newest_first(_tmp_look_dir):
 def test_list_saved_ignores_other_files(_tmp_look_dir):
     (_tmp_look_dir / "notes.txt").write_text("x")
     lio.save_look(_mixed_look(), "real")
-    assert lio.list_saved() == ["real.look"]
+    listed = lio.list_saved()
+    assert "real.look" in listed
+    assert not any(n.endswith(".txt") for n in listed)
+    assert all(n.endswith(".look") for n in listed)
 
 
 def test_loading_missing_or_wrong_type_is_explicit(_tmp_look_dir):
@@ -79,6 +82,59 @@ def test_loading_missing_or_wrong_type_is_explicit(_tmp_look_dir):
     (_tmp_look_dir / "thing.cube").write_text("x")
     with pytest.raises(ValueError, match="not a .look"):
         lio.load_look("thing.cube")
+
+
+# -- shipped looks -----------------------------------------------------------
+
+
+def test_shipped_looks_exist_and_load():
+    """Look I/O must be useful on a fresh install, before anything is saved."""
+    names = sorted(p.name for p in lio.shipped_dir().glob("*.look"))
+    assert names, "no shipped .look presets"
+    for name in names:
+        look = lio.load_look(name)
+        assert look.name, f"{name} has no name"
+        assert look.ops, f"{name} has no ops"
+
+
+def test_shipped_looks_match_the_node_presets():
+    """The .look files are generated from presets.json; if someone edits one
+    without the other, the same preset means two different things."""
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    presets = json.loads((root / "looks" / "presets.json").read_text(encoding="utf-8"))["presets"]
+    expected = {p["id"] for p in presets if p["id"] != "none"}
+    shipped = {p.stem for p in lio.shipped_dir().glob("*.look")}
+    assert shipped == expected, f"shipped looks {sorted(shipped)} != presets {sorted(expected)}"
+
+
+def test_shipped_looks_report_cube_exportability_correctly():
+    """The two presets containing glow must declare themselves unexportable."""
+    with_glow = {op_name for op_name in ("moody-low-key", "golden-hour")}
+    for path in lio.shipped_dir().glob("*.look"):
+        look = lio.load_look(path.name)
+        complete, _, dropped = lio.export_report(look)
+        if path.stem in with_glow:
+            assert not complete and "glow" in dropped, f"{path.stem} should report glow as dropped"
+        else:
+            assert complete, f"{path.stem} should be fully exportable but drops {dropped}"
+
+
+def test_user_look_overrides_a_shipped_one_of_the_same_name(_tmp_look_dir):
+    """Editing a preset and saving it under the same name should win."""
+    shipped_name = next(lio.shipped_dir().glob("*.look")).name
+    mine = Look(name="mine", ops=[LookOp(type="tone", params={"contrast": 0.9})])
+    lio.save_look(mine, shipped_name[: -len(".look")])
+    assert lio.load_look(shipped_name).name == "mine"
+
+
+def test_list_saved_includes_shipped_after_user_looks(_tmp_look_dir):
+    lio.save_look(_mixed_look(), "zzz mine")
+    listed = lio.list_saved()
+    assert listed[0] == "zzz mine.look", "user looks must come first"
+    assert any(n.startswith("golden-hour") for n in listed), "shipped looks must be offered too"
 
 
 @pytest.mark.parametrize("raw", ["../../etc/passwd", "..\\..\\windows\\x", "/abs/path", "C:\\evil"])

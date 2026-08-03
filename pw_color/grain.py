@@ -27,10 +27,9 @@ Same seed, same pixels, on any device.
 
 from __future__ import annotations
 
-import math
-
 import torch
 
+from .blur import gaussian_blur, sigma_for_size
 from .colour import luma_bt709, srgb_to_linear
 
 __all__ = [
@@ -94,27 +93,16 @@ class TonalResponse:
         return (w * falloff).unsqueeze(-1)
 
 
-def _gaussian_kernel(sigma: float, device, dtype) -> torch.Tensor:
-    radius = max(1, int(math.ceil(sigma * 3.0)))
-    x = torch.arange(-radius, radius + 1, device=device, dtype=dtype)
-    k = torch.exp(-(x * x) / (2.0 * sigma * sigma))
-    return k / k.sum()
-
-
 def _blur_separable(x: torch.Tensor, sigma: float) -> torch.Tensor:
-    """Separable Gaussian on ``[B,C,H,W]``. Reflect padding so grain does not
-    fade at the frame edge, which reads as a vignette."""
+    """Separable Gaussian on ``[B,C,H,W]``.
+
+    Delegates to the shared implementation, which clamps the kernel to what the
+    image can support — a grain size larger than a small frame used to crash on
+    reflect padding.
+    """
     if sigma <= 0.05:
         return x
-    k = _gaussian_kernel(sigma, x.device, x.dtype)
-    r = (k.numel() - 1) // 2
-    c = x.shape[1]
-    kh = k.view(1, 1, 1, -1).expand(c, 1, 1, -1)
-    kv = k.view(1, 1, -1, 1).expand(c, 1, -1, 1)
-    x = torch.nn.functional.pad(x, (r, r, 0, 0), mode="reflect")
-    x = torch.nn.functional.conv2d(x, kh, groups=c)
-    x = torch.nn.functional.pad(x, (0, 0, r, r), mode="reflect")
-    return torch.nn.functional.conv2d(x, kv, groups=c)
+    return gaussian_blur(x.permute(0, 2, 3, 1), sigma).permute(0, 3, 1, 2)
 
 
 def _normalise(field: torch.Tensor) -> torch.Tensor:
@@ -145,7 +133,7 @@ def procedural_field(
     produce the same stream as the CPU's, and a grain look that changes when you
     move machines is not a look.
     """
-    sigma = max(0.0, float(size)) / 2.355
+    sigma = sigma_for_size(size)
     out = []
     for b in range(batch):
         g = torch.Generator(device="cpu").manual_seed(int(seed) + (b if vary_per_frame else 0))

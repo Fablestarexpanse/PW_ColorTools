@@ -13,38 +13,12 @@ it only appears around highlights, and why it is soft.
 
 from __future__ import annotations
 
-import math
-
 import torch
 
+from .blur import gaussian_blur, sigma_for_size
 from .colour import linear_to_srgb, luma_bt709, srgb_to_linear
 
 __all__ = ["apply_halation", "apply_vignette", "apply_chromatic_aberration", "gaussian_blur"]
-
-
-def _kernel(sigma: float, device, dtype) -> torch.Tensor:
-    radius = max(1, int(math.ceil(sigma * 3.0)))
-    x = torch.arange(-radius, radius + 1, device=device, dtype=dtype)
-    k = torch.exp(-(x * x) / (2.0 * sigma * sigma))
-    return k / k.sum()
-
-
-def gaussian_blur(image: torch.Tensor, sigma: float) -> torch.Tensor:
-    """Separable Gaussian on ``[B,H,W,C]``, reflect-padded so the frame edge
-    does not darken into an accidental vignette."""
-    if sigma <= 0.05:
-        return image
-    x = image.permute(0, 3, 1, 2)
-    k = _kernel(sigma, x.device, x.dtype)
-    r = (k.numel() - 1) // 2
-    c = x.shape[1]
-    kh = k.view(1, 1, 1, -1).expand(c, 1, 1, -1)
-    kv = k.view(1, 1, -1, 1).expand(c, 1, -1, 1)
-    x = torch.nn.functional.pad(x, (r, r, 0, 0), mode="reflect")
-    x = torch.nn.functional.conv2d(x, kh, groups=c)
-    x = torch.nn.functional.pad(x, (0, 0, r, r), mode="reflect")
-    x = torch.nn.functional.conv2d(x, kv, groups=c)
-    return x.permute(0, 2, 3, 1)
 
 
 def apply_halation(
@@ -81,7 +55,7 @@ def apply_halation(
 
     # Radius in output pixels, matching the absolute-size contract PW Grain
     # sets, so a look keeps matching itself across resolutions.
-    blurred = gaussian_blur(bright, max(0.5, float(radius)) / 2.355)
+    blurred = gaussian_blur(bright, sigma_for_size(max(0.5, float(radius))))
     tintv = torch.tensor(tint, dtype=blurred.dtype, device=blurred.device)
 
     out = linear_to_srgb(lin + blurred * tintv * float(amount)).clamp(0.0, 1.0)

@@ -42,13 +42,29 @@ def look_dir() -> Path:
     return d
 
 
+def shipped_dir() -> Path:
+    """Looks that ship with the pack, as a read-only fallback."""
+    return Path(__file__).resolve().parents[1] / "looks" / "shipped"
+
+
 def list_saved() -> list[str]:
-    """Saved ``.look`` filenames, newest first."""
+    """Loadable ``.look`` filenames.
+
+    The user's own looks first and newest first — the one you just saved is the
+    one you want, and an alphabetical list buries it. Shipped presets follow,
+    so they are available on a fresh install without cluttering the top.
+    """
     d = look_dir()
-    if not d.is_dir():
-        return []
-    files = [p for p in d.iterdir() if p.suffix.lower() == ".look"]
-    return [p.name for p in sorted(files, key=lambda p: (-p.stat().st_mtime, p.name))]
+    mine: list[str] = []
+    if d.is_dir():
+        files = [p for p in d.iterdir() if p.suffix.lower() == ".look"]
+        mine = [p.name for p in sorted(files, key=lambda p: (-p.stat().st_mtime, p.name))]
+
+    shipped = []
+    s = shipped_dir()
+    if s.is_dir():
+        shipped = sorted(p.name for p in s.iterdir() if p.suffix.lower() == ".look" and p.name not in mine)
+    return [*mine, *shipped]
 
 
 def safe_name(name: str, suffix: str) -> str:
@@ -69,12 +85,19 @@ def save_look(look: Look, name: str) -> Path:
 
 
 def load_look(filename: str) -> Look:
-    path = look_dir() / Path(filename).name
-    if not path.is_file():
-        raise ValueError(f"look {filename!r} not found in {look_dir()}")
-    if path.suffix.lower() != ".look":
+    """Load by filename, checking the user's folder before the shipped one.
+
+    User first so that saving a look under a shipped name overrides it, which
+    is what someone editing a preset expects to happen.
+    """
+    name = Path(filename).name
+    if Path(name).suffix.lower() != ".look":
         raise ValueError(f"{filename!r} is not a .look file")
-    return Look.from_json(path.read_text(encoding="utf-8"))
+    for directory in (look_dir(), shipped_dir()):
+        path = directory / name
+        if path.is_file():
+            return Look.from_json(path.read_text(encoding="utf-8"))
+    raise ValueError(f"look {filename!r} not found in {look_dir()} or {shipped_dir()}")
 
 
 def bake_cube(look: Look, size: int = DEFAULT_SIZE, title: str = "") -> str:

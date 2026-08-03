@@ -174,6 +174,12 @@ class Lattice:
         shape = pts.shape
         p = pts.reshape(-1, 3).to(torch.float32)
 
+        # Move the *lattice* to the image, never the other way round. A 33³
+        # lattice is 430 KB; a 4K image is hundreds of megabytes, so pulling the
+        # image to the lattice's device would mean a full host transfer and
+        # would silently drop the rest of the chain onto the CPU.
+        data = self.data if self.data.device == p.device else self.data.to(p.device)
+
         # Continuous lattice coordinates. Clamping the *coordinate* (not the
         # input) means out-of-range values are held at the edge of the LUT,
         # which is what every LUT applier on earth does.
@@ -186,7 +192,7 @@ class Lattice:
         r1, g1, b1 = i1[:, 0], i1[:, 1], i1[:, 2]
         fr, fg, fb = f[:, 0:1], f[:, 1:2], f[:, 2:3]
 
-        d = self.data.reshape(-1, 3)
+        d = data.reshape(-1, 3)
 
         def corner(ri: torch.Tensor, gi: torch.Tensor, bi: torch.Tensor) -> torch.Tensor:
             return d[(ri * n + gi) * n + bi]
@@ -207,11 +213,16 @@ class Lattice:
         lattice can hold the unclamped function — see :data:`OUT_MIN`. The
         preview shader clamps in exactly the same place. An alpha channel, if
         present, passes through untouched.
+
+        The image's device and dtype are preserved. Sampling runs in float32
+        for precision, but a caller working in half precision gets half
+        precision back rather than a silently doubled tensor.
         """
+        dtype = image.dtype
         if image.shape[-1] == 4:
-            rgb = self.apply_points(image[..., :3].to(self.data.device)).clamp(0.0, 1.0)
-            return torch.cat((rgb, image[..., 3:].to(rgb.device)), dim=-1)
-        return self.apply_points(image.to(self.data.device)).clamp(0.0, 1.0)
+            rgb = self.apply_points(image[..., :3]).clamp(0.0, 1.0).to(dtype)
+            return torch.cat((rgb, image[..., 3:]), dim=-1)
+        return self.apply_points(image).clamp(0.0, 1.0).to(dtype)
 
     # -- transport ----------------------------------------------------------
 

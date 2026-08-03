@@ -76,12 +76,16 @@ export const PW = {
   /**
    * Drag modifiers. Centralised so every control behaves the same way — the
    * moment one canvas invents its own fine-adjust ratio, muscle memory breaks.
+   *
+   * Only settings that are actually wired up live here. A constant describing
+   * behaviour the pack does not have is worse than no constant: it reads as
+   * implemented. Hold-to-compare is on the roadmap, not in this object.
    */
   interaction: {
-    fineDragScale: 0.15, // shift-drag
-    doubleClickResets: true,
-    /** Hold-to-compare key. Held, not toggled: comparison is a glance. */
-    compareKey: 'Alt',
+    /** Shift-drag multiplier, used by every slider and the curve editor. */
+    fineDragScale: 0.15,
+    /** Milliseconds within which a second press counts as a double click. */
+    doubleClickMs: 300,
   },
 } as const;
 

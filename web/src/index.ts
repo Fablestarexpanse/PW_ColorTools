@@ -8,7 +8,6 @@ import { registerCurves } from './nodes/curves.ts';
 import { registerGrain } from './nodes/grain.ts';
 import { registerLook } from './nodes/look.ts';
 import { registerPalette } from './nodes/palette.ts';
-import { registerParityProbe } from './nodes/parity.ts';
 
 /**
  * Port colours for our custom types.
@@ -45,4 +44,3 @@ registerCurves();
 registerGrain();
 registerLook();
 registerPalette();
-registerParityProbe();

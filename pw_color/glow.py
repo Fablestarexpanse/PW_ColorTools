@@ -13,41 +13,12 @@ always-useful half.
 
 from __future__ import annotations
 
-import math
-
 import torch
 
+from .blur import gaussian_blur, sigma_for_size
 from .colour import luma_bt709, srgb_to_linear, linear_to_srgb
 
 __all__ = ["apply_glow", "gaussian_blur"]
-
-
-def _kernel(sigma: float, device, dtype) -> torch.Tensor:
-    radius = max(1, int(math.ceil(sigma * 3.0)))
-    x = torch.arange(-radius, radius + 1, device=device, dtype=dtype)
-    k = torch.exp(-(x * x) / (2.0 * sigma * sigma))
-    return k / k.sum()
-
-
-def gaussian_blur(image: torch.Tensor, sigma: float) -> torch.Tensor:
-    """Separable Gaussian on ``[B,H,W,C]``, reflect-padded.
-
-    Reflect rather than zero padding: zero padding darkens the frame edge, which
-    on a glow pass reads as an unintended vignette.
-    """
-    if sigma <= 0.05:
-        return image
-    x = image.permute(0, 3, 1, 2)
-    k = _kernel(sigma, x.device, x.dtype)
-    r = (k.numel() - 1) // 2
-    c = x.shape[1]
-    kh = k.view(1, 1, 1, -1).expand(c, 1, 1, -1)
-    kv = k.view(1, 1, -1, 1).expand(c, 1, -1, 1)
-    x = torch.nn.functional.pad(x, (r, r, 0, 0), mode="reflect")
-    x = torch.nn.functional.conv2d(x, kh, groups=c)
-    x = torch.nn.functional.pad(x, (0, 0, r, r), mode="reflect")
-    x = torch.nn.functional.conv2d(x, kv, groups=c)
-    return x.permute(0, 2, 3, 1)
 
 
 def apply_glow(
@@ -83,7 +54,7 @@ def apply_glow(
 
     # Radius is absolute in pixels, matching PW Grain's size contract, so a
     # look keeps matching itself across resolutions.
-    blurred = gaussian_blur(bright, max(0.5, float(radius)) / 2.355)
+    blurred = gaussian_blur(bright, sigma_for_size(max(0.5, float(radius))))
 
     if warmth != 0.0:
         tintv = torch.tensor(
