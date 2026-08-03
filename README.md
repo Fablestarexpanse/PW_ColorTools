@@ -34,11 +34,19 @@ glance and the nodes match the rest of the app. Seeds and output dimensions
 stay as typed fields, because those are values you enter rather than drag
 toward.
 
-**Every node resets.** A `reset` chip in the panel header, and a
-`Reset to defaults` entry in the right-click menu, put a node back to its
-defaults — including the parts the widgets do not hold, like the curve itself
-and the colour mixer. Seeds are left alone, since resetting one would change
-your grain rather than neutralise a control.
+**Every node resets to a pass-through.** A `reset` chip in the panel header, or
+the right-click menu, and the image comes out exactly as it went in — including
+the parts the widgets do not hold, like the curve itself and the colour mixer.
+
+Not "back to defaults": a few defaults are opinionated on purpose. Halation is
+what makes PW Optics worth reaching for, and the dither floor exists to be
+always on. Those are good defaults and bad reset targets, because reset has to
+answer "is this node still affecting my image?" with a definite no. A test runs
+each node with its reset values and asserts the output is unchanged, so that
+answer stays true.
+
+Seeds are left alone, since resetting one would change your grain rather than
+neutralise a control.
 
 **Preview controls**, on any node that has one:
 

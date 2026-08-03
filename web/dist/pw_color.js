@@ -1563,6 +1563,12 @@ function onRunComplete(fn) {
 }
 
 // src/widgets/reset.ts
+var PASS_THROUGH = {
+  // Vignette and aberration already default to zero; only halation is on.
+  PW_Optics: { halation: 0 },
+  PW_Grain: { amount: 0, dither: 0 },
+  PW_MatchSource: { strength: 0 }
+};
 function defaultFor(node, name) {
   const defs = node.constructor?.nodeData?.input ?? {};
   for (const section of ["required", "optional"]) {
@@ -1576,9 +1582,10 @@ function defaultFor(node, name) {
 }
 function resetNode(node, opts = {}) {
   const keep = new Set(opts.keep ?? ["seed", "control_after_generate"]);
+  const neutral = PASS_THROUGH[String(node.type)] ?? {};
   for (const w of node.widgets ?? []) {
     if (keep.has(w.name)) continue;
-    const value = defaultFor(node, w.name);
+    const value = w.name in neutral ? neutral[w.name] : defaultFor(node, w.name);
     if (value === void 0) continue;
     if (w.value !== value) {
       w.value = value;
@@ -1593,7 +1600,7 @@ function addResetMenu(nodeType, opts = () => ({})) {
   nodeType.prototype.getExtraMenuOptions = function(canvas, options) {
     const result = prior?.apply(this, arguments);
     options.push(null, {
-      content: "Reset to defaults",
+      content: "Reset \u2014 pass image through unchanged",
       callback: () => resetNode(this, opts(this))
     });
     return result;
