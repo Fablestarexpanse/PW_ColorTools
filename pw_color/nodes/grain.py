@@ -15,10 +15,11 @@ import torch
 from comfy_api.latest import io
 
 from ..grain import DEFAULT_CHROMA, GRAIN_BLEND_MODES, TonalResponse, apply_grain, plate_field, procedural_field
+from ..paths import GRAIN_DIR
 from ..grain import dither as apply_dither  # aliased: `dither` is also an input name
 from ..types import Look, LookOp
 
-PLATES_DIR = Path(__file__).resolve().parents[2] / "grain"
+PLATES_DIR = GRAIN_DIR
 PLATE_SUFFIXES = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp")
 
 

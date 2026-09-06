@@ -18,8 +18,6 @@ Two things distinguish it from the existing options:
 from __future__ import annotations
 
 import json
-from functools import lru_cache
-from pathlib import Path
 
 import torch
 from comfy_api.latest import io
@@ -27,24 +25,16 @@ from comfy_api.latest import io
 from ..curve import IDENTITY_POINTS
 from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from ..ops import build_sample_fn
+from ..paths import CURVE_PRESETS
+from ..presets import resolve_preset
+from ..presets import preset_ids as _preset_ids
 from ..types import Look, LookOp
-
-PRESETS_PATH = Path(__file__).resolve().parents[2] / "looks" / "curves" / "presets.json"
-
-
-@lru_cache(maxsize=1)
-def _presets() -> dict[str, dict]:
-    """Presets, read once. Shipped as JSON rather than hardcoded so a user can
-    drop their own in without touching Python."""
-    try:
-        data = json.loads(PRESETS_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return {p["id"]: p for p in data.get("presets", [])}
 
 
 def preset_ids() -> list[str]:
-    return ["none", *_presets().keys()]
+    """Shipped as JSON rather than hardcoded so a user can drop their own in
+    without touching Python."""
+    return _preset_ids(CURVE_PRESETS)
 
 
 _IDENTITY = [list(p) for p in IDENTITY_POINTS]
@@ -160,11 +150,9 @@ class PW_Curves(io.ComfyNode):
         except ValueError as exc:
             raise ValueError(f"PW Curves: could not read the curve data ({exc}). Reset the node to recover.") from exc
 
-        if preset and preset != "none":
-            p = _presets().get(preset)
-            if p is None:
-                raise ValueError(f"PW Curves: unknown preset {preset!r}")
-            raw = {**{k: _IDENTITY for k in ("luma", "r", "g", "b")}, **p.get("curves", {})}
+        chosen = resolve_preset(CURVE_PRESETS, preset, "PW Curves")
+        if chosen:
+            raw = {**{k: _IDENTITY for k in ("luma", "r", "g", "b")}, **chosen.get("curves", {})}
 
         params = {k: _normalise(raw.get(k)) for k in ("luma", "r", "g", "b")}
         params["preserve_hue"] = bool(preserve_hue)

@@ -17,7 +17,7 @@ import torch
 from comfy_api.latest import io
 
 from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
-from ..look_io import bake_cube, export_report, list_saved, load_look, look_dir, safe_name, save_look
+from ..look_io import bake_cube, export_report, list_saved, load_look, safe_name, save_look, writable_dir
 from ..ops import build_sample_fn
 from ..types import Look
 
@@ -88,42 +88,53 @@ class PW_LookIO(io.ComfyNode):
     ) -> io.NodeOutput:
         # A loaded file wins over the wired input: it is the more deliberate act.
         if load and load != "none":
-            doc = load_look(load)
+            resolved = load_look(load)
             source = f"loaded {load}"
         elif look:
-            doc = Look.from_dict(look)
+            resolved = Look.from_dict(look)
             source = "input"
         else:
-            doc = Look()
+            resolved = Look()
             source = "empty"
 
-        lines = [f"source    {source}", f"ops       {len(doc.ops)}"]
-        for op in doc.ops:
+        # One decode, one report: both used to be computed twice, and the two
+        # cube_size expressions disagreed about what an unexpected value meant.
+        lut_size = FINAL_SIZE if cube_size == "65" else DEFAULT_SIZE
+        complete, included, dropped = export_report(resolved)
+
+        lines = [f"source    {source}", f"ops       {len(resolved.ops)}"]
+        for op in resolved.ops:
             flag = "lut" if op.lut_safe else "render only"
             state = "" if op.enabled else "  (disabled)"
             lines.append(f"  - {op.type:<16} {flag}{state}")
 
         if save_as.strip():
-            lines.append(f"saved     {save_look(doc, save_as)}")
+            lines.append(f"saved     {save_look(resolved, save_as)}")
 
         if export_cube.strip():
-            complete, included, dropped = export_report(doc)
-            size = int(cube_size) if cube_size in ("33", "65") else DEFAULT_SIZE
-            path = look_dir() / safe_name(export_cube, ".cube")
-            path.write_text(bake_cube(doc, size=size, title=doc.name or Path(export_cube).stem), encoding="utf-8")
-            lines.append(f"exported  {path}  ({size}³, {len(included)} ops)")
-            if not complete:
-                # The whole reason this node reports rather than just writing.
-                lines.append(f"WARNING   the .cube does not include: {', '.join(dropped)}")
-                lines.append("          those are spatial or image-dependent and cannot be a LUT")
+            path = writable_dir() / safe_name(export_cube, "cube")
+            try:
+                path.write_text(
+                    bake_cube(resolved, size=lut_size, title=resolved.name or Path(export_cube).stem),
+                    encoding="utf-8",
+                )
+            except OSError as exc:
+                # The save above may already have succeeded. Raising here would
+                # throw away the whole report, including the line telling the
+                # user where their .look went.
+                lines.append(f"ERROR     could not write {path}: {exc}")
+            else:
+                lines.append(f"exported  {path}  ({lut_size}³, {len(included)} ops)")
+                if not complete:
+                    # The whole reason this node reports rather than just writing.
+                    lines.append(f"WARNING   the .cube does not include: {', '.join(dropped)}")
+                    lines.append("          those are spatial or image-dependent and cannot be a LUT")
 
         out_image = image
         if image is not None:
-            lut_ops = [op.to_dict() for op in doc.ops if op.enabled and op.lut_safe]
+            lut_ops = [op.to_dict() for op in resolved.ops if op.enabled and op.lut_safe]
             if lut_ops:
-                size = FINAL_SIZE if cube_size == "65" else DEFAULT_SIZE
-                out_image = Lattice.from_fn(build_sample_fn(lut_ops), size).apply(image)
-            complete, _, dropped = export_report(doc)
+                out_image = Lattice.from_fn(build_sample_fn(lut_ops), lut_size).apply(image)
             if not complete:
                 lines.append(f"NOTE      applied image excludes: {', '.join(dropped)}")
         else:
@@ -131,7 +142,7 @@ class PW_LookIO(io.ComfyNode):
             # surprising placeholder and costs nothing downstream.
             out_image = torch.zeros(1, 1, 1, 3)
 
-        return io.NodeOutput(doc.to_dict(), out_image, "\n".join(lines))
+        return io.NodeOutput(resolved.to_dict(), out_image, "\n".join(lines))
 
 
 NODES = [PW_LookIO]

@@ -15,11 +15,14 @@ ComfyUI rather than on us.
 from __future__ import annotations
 
 import io as _io
+import json
 import logging
 import threading
 from collections import OrderedDict
 
 import torch
+
+from .paths import LOOK_PRESETS
 
 _log = logging.getLogger("PW_Color")
 
@@ -279,15 +282,10 @@ def register_routes() -> bool:
         Served rather than bundled into the JS: presets are data, and a user
         dropping a file into looks/ should not need a rebuild to see it.
         """
-        from pathlib import Path
-
-        path = Path(__file__).resolve().parents[1] / "looks" / "presets.json"
         try:
-            import json
-
-            return web.json_response(json.loads(path.read_text(encoding="utf-8")))
+            return web.json_response(json.loads(LOOK_PRESETS.read_text(encoding="utf-8")))
         except (OSError, ValueError):
-            _log.exception("PW Color: could not read %s", path)
+            _log.exception("PW Color: could not read %s", LOOK_PRESETS)
             return web.json_response({"presets": []})
 
     return True

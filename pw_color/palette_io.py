@@ -23,15 +23,19 @@ from pathlib import Path
 
 from .colour import hex_to_srgb, srgb_to_hex
 from .types import Palette, Swatch
+from .userdata import newest_first, safe_name as _safe_name
+from .userdata import user_dir
 
 __all__ = [
     "PALETTE_FORMATS",
     "palette_dir",
+    "writable_dir",
     "list_saved",
     "save_palette",
     "load_palette",
     "to_bytes",
     "from_bytes",
+    "safe_name",
 ]
 
 #: Extension -> human label, in the order they appear in the UI.
@@ -42,48 +46,32 @@ PALETTE_FORMATS = {
     "txt": "Hex list (.txt) - one per line",
 }
 
-_SAFE_NAME = re.compile(r"[^A-Za-z0-9 ._-]")
-
-
 def palette_dir() -> Path:
     """Where palettes are saved.
 
     ComfyUI's output folder, not the pack folder: palettes are the user's work
     and must survive updating or reinstalling this node pack.
     """
-    try:
-        import folder_paths  # type: ignore
+    return user_dir("palettes")
 
-        root = Path(folder_paths.get_output_directory())
-    except Exception:  # pragma: no cover - outside ComfyUI
-        root = Path(__file__).resolve().parents[1] / "output"
-    d = root / "palettes"
+
+def writable_dir() -> Path:
+    """`palette_dir`, created. Called when about to write, never when listing —
+    see the same note in `look_io`.
+    """
+    d = palette_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def list_saved() -> list[str]:
-    """Saved palette filenames, newest first.
-
-    Newest first because the one you just saved is the one you want, and a
-    dropdown sorted alphabetically buries it.
-    """
-    d = palette_dir()
-    if not d.is_dir():
-        return []
-    files = [p for p in d.iterdir() if p.suffix.lower().lstrip(".") in PALETTE_FORMATS]
-    return [p.name for p in sorted(files, key=lambda p: (-p.stat().st_mtime, p.name))]
+    """Saved palette filenames, newest first."""
+    return newest_first(palette_dir(), tuple(PALETTE_FORMATS))
 
 
 def safe_name(name: str, fmt: str) -> str:
-    """Sanitise a user-supplied filename.
-
-    Path separators and ``..`` are stripped rather than escaped: this string
-    comes from a text widget, and the only correct handling of a traversal
-    attempt is for it not to be a path at all.
-    """
-    stem = _SAFE_NAME.sub("_", Path(name.strip()).name).strip(" .") or "palette"
-    return f"{stem}.{fmt}"
+    """Sanitise a user-supplied palette filename. See `userdata.safe_name`."""
+    return _safe_name(name, fmt, "palette")
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +107,7 @@ def save_palette(palette: Palette, name: str, fmt: str = "json") -> Path:
     """Write a palette and return the path actually written."""
     if fmt not in PALETTE_FORMATS:
         raise ValueError(f"unknown palette format {fmt!r}")
-    path = palette_dir() / safe_name(name, fmt)
+    path = writable_dir() / safe_name(name, fmt)
     path.write_bytes(to_bytes(palette, fmt, name=path.stem))
     return path
 

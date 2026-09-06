@@ -20,8 +20,6 @@ The pipeline, in order, and the order matters:
 from __future__ import annotations
 
 import json
-from functools import lru_cache
-from pathlib import Path
 
 import torch
 from comfy_api.latest import io
@@ -32,25 +30,16 @@ from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from ..look import HSL_BANDS, ramp_from_palette
 from ..match import MATCH_TIERS, match_least_squares, match_mean_std
 from ..ops import build_sample_fn
+from ..paths import LOOK_PRESETS
+from ..presets import preset_name, resolve_preset
+from ..presets import preset_ids as _preset_ids
 from ..types import Look, LookOp, Palette
-
-PRESETS_PATH = Path(__file__).resolve().parents[2] / "looks" / "presets.json"
 
 GRADIENT_BLENDS = ("colour", "normal", "soft light", "overlay", "multiply", "screen")
 
 
-@lru_cache(maxsize=1)
-def _presets() -> dict[str, dict]:
-    try:
-        data = json.loads(PRESETS_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return {p["id"]: p for p in data.get("presets", [])}
-
-
 def preset_ids() -> list[str]:
-    ids = list(_presets().keys())
-    return ids if ids else ["none"]
+    return _preset_ids(LOOK_PRESETS)
 
 
 def _empty_hsl() -> dict[str, dict[str, float]]:
@@ -171,37 +160,67 @@ class PW_Look(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, image: torch.Tensor, **kw) -> io.NodeOutput:
+    def execute(
+        cls,
+        image: torch.Tensor,
+        preset: str = "none",
+        exposure: float = 0.0,
+        contrast: float = 0.0,
+        highlights: float = 0.0,
+        shadows: float = 0.0,
+        whites: float = 0.0,
+        blacks: float = 0.0,
+        warmth: float = 0.0,
+        tint: float = 0.0,
+        vibrance: float = 0.0,
+        saturation: float = 1.0,
+        glow: float = 0.0,
+        glow_radius: float = 24.0,
+        glow_threshold: float = 0.65,
+        strength: float = 1.0,
+        blend: str = "normal",
+        hsl: str = "{}",
+        gradient_map: float = 0.0,
+        gradient_blend: str = "colour",
+        palette: dict | None = None,
+        mask: torch.Tensor | None = None,
+        reference: torch.Tensor | None = None,
+        reference_strength: float = 1.0,
+        reference_mode: str = "mean_std",
+        quality: str = "high",
+        look_in: dict | None = None,
+    ) -> io.NodeOutput:
         from ..preview_server import store_for_node
 
         store_for_node(cls, image)
 
-        preset = kw.get("preset", "none")
-        p = dict(_presets().get(preset, {}).get("params", {})) if preset and preset != "none" else {}
+        params = resolve_preset(LOOK_PRESETS, preset, "PW Look").get("params", {})
 
-        def val(name: str, default):
-            """Preset wins over the slider default, but an explicitly moved
-            slider wins over the preset. Presets lead, sliders follow."""
-            widget = kw.get(name, default)
-            if name in p and widget == default:
-                return p[name]
-            return widget
+        def val(name: str, widget: float, default: float) -> float:
+            """Presets lead, sliders follow.
+
+            The preset supplies the value while the slider is untouched; the
+            moment the user moves that slider, their hand wins. This is the only
+            precedence rule on the node — including for the gradient map, which
+            used to have its own.
+            """
+            if name in params and widget == default:
+                return float(params[name])
+            return float(widget)
 
         # -- 1. reference match -------------------------------------------
         out = image
         ops: list[LookOp] = []
-        reference = kw.get("reference")
-        ref_strength = float(kw.get("reference_strength", 1.0))
+        ref_strength = float(reference_strength)
         if reference is not None and ref_strength > 0.0:
-            mode = kw.get("reference_mode", "mean_std")
-            if mode == "least_squares":
+            if reference_mode == "least_squares":
                 out = match_least_squares(out, reference, mask=None, strength=ref_strength)
             else:
                 out = match_mean_std(out, reference, mask=None, strength=ref_strength, space="oklab")
             ops.append(
                 LookOp(
                     type="reference_match",
-                    params={"space": "oklab", "mode": mode},
+                    params={"space": "oklab", "mode": reference_mode},
                     strength=ref_strength,
                     lut_safe=False,  # depends on this specific pair of images
                 )
@@ -209,42 +228,42 @@ class PW_Look(io.ComfyNode):
 
         # -- 2. the lattice ------------------------------------------------
         tone = {
-            "exposure": float(val("exposure", 0.0)),
-            "contrast": float(val("contrast", 0.0)),
-            "highlights": float(val("highlights", 0.0)),
-            "shadows": float(val("shadows", 0.0)),
-            "whites": float(val("whites", 0.0)),
-            "blacks": float(val("blacks", 0.0)),
+            "exposure": val("exposure", exposure, 0.0),
+            "contrast": val("contrast", contrast, 0.0),
+            "highlights": val("highlights", highlights, 0.0),
+            "shadows": val("shadows", shadows, 0.0),
+            "whites": val("whites", whites, 0.0),
+            "blacks": val("blacks", blacks, 0.0),
         }
         colour_p = {
-            "warmth": float(val("warmth", 0.0)),
-            "tint": float(val("tint", 0.0)),
-            "vibrance": float(val("vibrance", 0.0)),
-            "saturation": float(val("saturation", 1.0)),
+            "warmth": val("warmth", warmth, 0.0),
+            "tint": val("tint", tint, 0.0),
+            "vibrance": val("vibrance", vibrance, 0.0),
+            "saturation": val("saturation", saturation, 1.0),
         }
 
         hsl_bands = _empty_hsl()
         try:
-            raw_hsl = json.loads(kw.get("hsl") or "{}")
+            raw_hsl = json.loads(hsl or "{}")
         except ValueError as exc:
             raise ValueError(f"PW Look: could not read the HSL mixer data ({exc}). Reset the node to recover.") from exc
-        for name, band in (p.get("hsl") or {}).items():
+        for name, band in (params.get("hsl") or {}).items():
             if name in hsl_bands:
                 hsl_bands[name].update({k: float(v) for k, v in band.items()})
         for name, band in raw_hsl.items():
             if name in hsl_bands and isinstance(band, dict):
                 hsl_bands[name].update({k: float(v) for k, v in band.items() if k in ("hue", "sat", "lum")})
 
-        grad_amount = float(val("gradient_map", 0.0))
-        grad_blend = kw.get("gradient_blend", "colour")
-        grad_stops = p.get("gradient_map_stops")
-        if "gradient_map_amount" in p and kw.get("gradient_map", 0.0) == 0.0:
-            grad_amount = float(p["gradient_map_amount"])
-            grad_blend = p.get("gradient_map_blend", grad_blend)
-        palette_in = kw.get("palette")
-        if palette_in:
+        # The preset spells the gradient map with a prefix, because "amount"
+        # and "blend" on their own would collide with the master controls.
+        grad_amount = val("gradient_map_amount", gradient_map, 0.0)
+        grad_blend = gradient_blend
+        if "gradient_map_amount" in params and gradient_map == 0.0:
+            grad_blend = params.get("gradient_map_blend", grad_blend)
+        grad_stops = params.get("gradient_map_stops")
+        if palette:
             # A wired palette wins: it is the more deliberate input.
-            grad_stops = ramp_from_palette([c.hex for c in Palette.from_dict(palette_in).colors])
+            grad_stops = ramp_from_palette([c.hex for c in Palette.from_dict(palette).colors])
 
         lattice_ops = [
             LookOp(type="tone", params=tone),
@@ -255,34 +274,28 @@ class PW_Look(io.ComfyNode):
                 params={"amount": grad_amount, "blend": grad_blend, "stops": grad_stops or []},
             ),
         ]
-        size = DEFAULT_SIZE if kw.get("quality") == "fast" else FINAL_SIZE
+        size = DEFAULT_SIZE if quality == "fast" else FINAL_SIZE
         lattice = Lattice.from_fn(build_sample_fn([o.to_dict() for o in lattice_ops]), size)
         graded = lattice.apply(out)
         ops.extend(lattice_ops)
 
         # -- 3. glow (spatial) ---------------------------------------------
-        glow = float(val("glow", 0.0))
-        if glow > 0.0:
+        glow_amount = val("glow", glow, 0.0)
+        if glow_amount > 0.0:
+            glow_params = {
+                "amount": glow_amount,
+                "radius": val("glow_radius", glow_radius, 24.0),
+                "threshold": val("glow_threshold", glow_threshold, 0.65),
+            }
             graded = apply_glow(
                 graded,
-                amount=glow,
-                radius=float(val("glow_radius", 24.0)),
-                threshold=float(val("glow_threshold", 0.65)),
+                amount=glow_params["amount"],
+                radius=glow_params["radius"],
+                threshold=glow_params["threshold"],
             )
-            ops.append(
-                LookOp(
-                    type="glow",
-                    params={
-                        "amount": glow,
-                        "radius": float(val("glow_radius", 24.0)),
-                        "threshold": float(val("glow_threshold", 0.65)),
-                    },
-                    lut_safe=False,  # spatial
-                )
-            )
+            ops.append(LookOp(type="glow", params=glow_params, lut_safe=False))  # spatial
 
         # -- 4. mask --------------------------------------------------------
-        mask = kw.get("mask")
         if mask is not None:
             m = mask
             if m.ndim == 2:
@@ -293,16 +306,16 @@ class PW_Look(io.ComfyNode):
             graded = torch.lerp(out[..., :3], graded[..., :3], m)
 
         # -- 5. master strength and blend ------------------------------------
-        strength = float(kw.get("strength", 1.0))
-        blend = kw.get("blend", "normal")
-        result = composite(out[..., :3], graded[..., :3], blend, strength)
+        result = composite(out[..., :3], graded[..., :3], blend, float(strength))
         if image.shape[-1] == 4:
             result = torch.cat((result, image[..., 3:]), dim=-1)
 
-        look = Look.from_dict(kw["look_in"]) if kw.get("look_in") else Look()
+        look = Look.from_dict(look_in) if look_in else Look()
         for op in ops:
             look = look.appended(op)
-        look.name = _presets().get(preset, {}).get("name", "") if preset != "none" else look.name
+        name = preset_name(LOOK_PRESETS, preset)
+        if name:
+            look.name = name
         return io.NodeOutput(result, look.to_dict())
 
 

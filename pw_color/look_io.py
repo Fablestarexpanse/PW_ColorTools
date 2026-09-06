@@ -13,16 +13,26 @@ that quietly does less than they think.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from .lattice import DEFAULT_SIZE, Lattice
 from .ops import build_sample_fn
+from .paths import LOOKS_DIR
 from .types import Look
+from .userdata import newest_first, safe_name as _safe_name
+from .userdata import user_dir
 
-__all__ = ["look_dir", "list_saved", "save_look", "load_look", "bake_cube", "export_report"]
-
-_SAFE_NAME = re.compile(r"[^A-Za-z0-9 ._-]")
+__all__ = [
+    "look_dir",
+    "writable_dir",
+    "shipped_dir",
+    "list_saved",
+    "save_look",
+    "load_look",
+    "bake_cube",
+    "export_report",
+    "safe_name",
+]
 
 
 def look_dir() -> Path:
@@ -31,20 +41,22 @@ def look_dir() -> Path:
     Same reasoning as palettes — these are the user's work and must survive
     updating or reinstalling this node pack.
     """
-    try:
-        import folder_paths  # type: ignore
+    return user_dir("looks")
 
-        root = Path(folder_paths.get_output_directory())
-    except Exception:  # pragma: no cover - outside ComfyUI
-        root = Path(__file__).resolve().parents[1] / "output"
-    d = root / "looks"
+
+def writable_dir() -> Path:
+    """`look_dir`, created. Called when about to write, never when listing —
+    building the node schema lists saved looks, and importing the pack should
+    not put directories on the user's disk before they have saved anything.
+    """
+    d = look_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def shipped_dir() -> Path:
     """Looks that ship with the pack, as a read-only fallback."""
-    return Path(__file__).resolve().parents[1] / "looks" / "shipped"
+    return LOOKS_DIR / "shipped"
 
 
 def list_saved() -> list[str]:
@@ -54,12 +66,7 @@ def list_saved() -> list[str]:
     one you want, and an alphabetical list buries it. Shipped presets follow,
     so they are available on a fresh install without cluttering the top.
     """
-    d = look_dir()
-    mine: list[str] = []
-    if d.is_dir():
-        files = [p for p in d.iterdir() if p.suffix.lower() == ".look"]
-        mine = [p.name for p in sorted(files, key=lambda p: (-p.stat().st_mtime, p.name))]
-
+    mine = newest_first(look_dir(), (".look",))
     shipped = []
     s = shipped_dir()
     if s.is_dir():
@@ -67,19 +74,13 @@ def list_saved() -> list[str]:
     return [*mine, *shipped]
 
 
-def safe_name(name: str, suffix: str) -> str:
-    """Sanitise a user-supplied filename.
-
-    Path separators and ``..`` are stripped rather than escaped: the value comes
-    from a text widget, and the only correct handling of a traversal attempt is
-    for the result not to be a path at all.
-    """
-    stem = _SAFE_NAME.sub("_", Path(name.strip()).name).strip(" .") or "look"
-    return f"{stem}{suffix}"
+def safe_name(name: str, ext: str = "look") -> str:
+    """Sanitise a user-supplied look filename. See `userdata.safe_name`."""
+    return _safe_name(name, ext, "look")
 
 
 def save_look(look: Look, name: str) -> Path:
-    path = look_dir() / safe_name(name, ".look")
+    path = writable_dir() / safe_name(name)
     path.write_text(look.to_json(), encoding="utf-8")
     return path
 

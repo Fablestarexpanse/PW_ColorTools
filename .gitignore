@@ -6,3 +6,6 @@ web/dist/*.map
 .venv/
 *.egg-info/
 output/
+
+# Local code-health tool state (desloppify)
+.desloppify/
