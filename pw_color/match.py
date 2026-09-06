@@ -24,12 +24,14 @@ function; the identifier is a compatibility artefact, not a claim.
 
 from __future__ import annotations
 
+from typing import Literal, get_args
+
 import torch
 
 from . import colour
 from .colour import with_alpha_of
 
-__all__ = ["MatchStats", "channel_stats", "match_mean_std", "match_least_squares", "MATCH_SPACES", "MATCH_TIERS"]
+__all__ = ["MatchStats", "channel_stats", "match_mean_std", "match_least_squares", "MATCH_SPACES", "MATCH_TIERS", "MatchSpace", "MatchTier"]
 
 #: Reference-matching strategies, simplest first.
 #:
@@ -41,12 +43,14 @@ __all__ = ["MatchStats", "channel_stats", "match_mean_std", "match_least_squares
 #: The cost is that it can fail in ways a user cannot predict: fitted on two
 #: images with different content it will happily learn the difference in
 #: content rather than the difference in grade.
-MATCH_TIERS = ("mean_std", "least_squares")
+MatchTier = Literal["mean_std", "least_squares"]
+MATCH_TIERS: tuple[str, ...] = get_args(MatchTier)
 
 #: Spaces we can match in. ``oklab`` is the default because a mean/std match on
 #: sRGB-encoded values is a match on an arbitrary nonlinearity: the same drift
 #: gets a different correction depending on how bright the frame happens to be.
-MATCH_SPACES = ("oklab", "linear", "srgb")
+MatchSpace = Literal["oklab", "linear", "srgb"]
+MATCH_SPACES: tuple[str, ...] = get_args(MatchSpace)
 
 
 class MatchStats:
@@ -118,7 +122,7 @@ def match_mean_std(
     original: torch.Tensor,
     mask: torch.Tensor | None = None,
     strength: float = 1.0,
-    space: str = "oklab",
+    space: MatchSpace = "oklab",
     max_gain: float = 4.0,
 ) -> torch.Tensor:
     """Correct ``processed`` so its statistics match ``original``.

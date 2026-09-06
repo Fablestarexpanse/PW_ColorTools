@@ -28,7 +28,7 @@ OPS = {
         x, grain.procedural_field(x.shape[0], x.shape[1], x.shape[2], 1.4, 7, device=x.device),
         grain.TonalResponse(), amount=0.2
     ),
-    "dither": lambda x: grain.dither(x, seed=7),
+    "dither": lambda x: grain.apply_dither(x, seed=7),
     "glow": lambda x: glow.apply_glow(x, 0.5, radius=8.0),
     "halation": lambda x: optics.apply_halation(x, 0.5, radius=8.0),
     "vignette": lambda x: optics.apply_vignette(x, 0.5),

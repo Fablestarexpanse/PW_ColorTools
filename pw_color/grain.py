@@ -27,6 +27,8 @@ Same seed, same pixels, on any device.
 
 from __future__ import annotations
 
+from typing import Literal, get_args
+
 import torch
 
 from .blend import blend_pixels
@@ -39,12 +41,14 @@ __all__ = [
     "procedural_field",
     "plate_field",
     "apply_grain",
-    "dither",
+    "apply_dither",
     "DEFAULT_CHROMA",
+    "GrainBlendMode",
 ]
 
 #: Blend modes offered for grain. The Photoshop set our audience already knows.
-GRAIN_BLEND_MODES = ("overlay", "soft light", "add", "screen")
+GrainBlendMode = Literal["overlay", "soft light", "add", "screen"]
+GRAIN_BLEND_MODES: tuple[str, ...] = get_args(GrainBlendMode)
 
 #: Below this fraction of the range, grain fades out entirely.
 #:
@@ -299,7 +303,7 @@ def apply_grain(
     return with_alpha_of(out, image)
 
 
-def dither(image: torch.Tensor, seed: int, levels: int = 255, strength: float = 1.0) -> torch.Tensor:
+def apply_dither(image: torch.Tensor, seed: int, levels: int = 255, strength: float = 1.0) -> torch.Tensor:
     """Add a triangular-PDF dither floor before 8-bit quantisation.
 
     Always on, even at zero grain. A smooth sky or a soft gradient quantised to

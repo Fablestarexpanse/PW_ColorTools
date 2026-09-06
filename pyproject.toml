@@ -5,6 +5,13 @@ version = "1.0.0"
 license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.10"
+
+# Intentionally empty, and this is worth stating rather than leaving to be
+# inferred. The pack imports torch, numpy, Pillow and aiohttp, but all four ship
+# with ComfyUI, which is the only environment these nodes run in. Declaring them
+# would invite ComfyUI Manager to resolve and reinstall torch against a GPU
+# build the user carefully chose, which is a far worse failure than the one an
+# empty list risks.
 dependencies = []
 
 [project.urls]

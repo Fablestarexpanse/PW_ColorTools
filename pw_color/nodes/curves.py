@@ -49,18 +49,16 @@ _DEFAULT_CURVES = json.dumps(
 def _normalise(points) -> list[list[float]]:
     """Coerce whatever came out of the workflow JSON into control points.
 
-    Deliberately permissive: a preset file, a hand-edited widget value and the
-    editor's own output all land here, and rejecting a slightly-off shape would
-    mean a user loses their curve on reload.
+    Permissive about *missing* data — a short or absent list falls back to the
+    identity rather than losing the user their curve on reload — but not about
+    the point shape. It used to also accept ``{"x": .., "y": ..}`` dicts, which
+    no producer emits and which the TypeScript reader rejects: a curve Python
+    accepted would then bake differently in the browser, and this pack's whole
+    argument is that the two agree.
     """
     if not points or len(points) < 2:
         return [list(p) for p in _IDENTITY]
-    out = []
-    for p in points:
-        if isinstance(p, dict):
-            out.append([float(p.get("x", 0.0)), float(p.get("y", 0.0))])
-        else:
-            out.append([float(p[0]), float(p[1])])
+    out = [[float(p[0]), float(p[1])] for p in points]
     return sorted(out, key=lambda q: q[0])
 
 

@@ -228,3 +228,47 @@ def test_corrupt_files_all_fail_the_same_way(fmt: str, data: bytes):
     """
     with pytest.raises(ValueError):
         from_bytes(data, fmt)
+
+
+# -- the browser writes these formats too ------------------------------------
+
+
+def _node_export(hexes: list[str], name: str) -> dict:
+    """Run the browser's exporters under bare node and return what they wrote."""
+    import base64
+    import json
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not on PATH")
+    harness = Path(__file__).resolve().parents[1] / "web" / "tools" / "palette_export.ts"
+    proc = subprocess.run(
+        [node, "--experimental-strip-types", "--no-warnings", str(harness)],
+        input=json.dumps({"hexes": hexes, "name": name}),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        pytest.fail(f"palette export harness failed:\n{proc.stderr[-2000:]}")
+    out = json.loads(proc.stdout)
+    return {"ase": base64.b64decode(out["ase"]), "gpl": out["gpl"]}
+
+
+HEXES = ["#7F77DD", "#1B1A20", "#ECA473", "#FFFFFF", "#000000"]
+
+
+def test_ase_bytes_match_the_browsers():
+    """A .ase written by the node and one written by the Export button must be
+    the same file. Both are hand-rolled binary writers, big-endian with
+    UTF-16BE names, and nothing else would notice them drifting."""
+    palette = Palette(colors=[Swatch(hex=h, oklab=(0.5, 0.0, 0.0), coverage=0.2) for h in HEXES])
+    assert palette.to_ase_bytes() == _node_export(HEXES, "pw")["ase"]
+
+
+def test_gpl_text_matches_the_browsers():
+    palette = Palette(colors=[Swatch(hex=h, oklab=(0.5, 0.0, 0.0), coverage=0.2) for h in HEXES])
+    mine = to_bytes(palette, "gpl", name="pw").decode("utf-8")
+    assert mine == _node_export(HEXES, "pw")["gpl"]

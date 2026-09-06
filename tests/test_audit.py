@@ -97,7 +97,7 @@ IMAGE_OPS: dict[str, tuple] = {
         ),
         True,
     ),
-    "dither": (lambda x: grain.dither(x, seed=7), True),
+    "dither": (lambda x: grain.apply_dither(x, seed=7), True),
     "glow": (lambda x: glow.apply_glow(x, 0.5, radius=8.0), True),
     "halation": (lambda x: optics.apply_halation(x, 0.6, radius=8.0), True),
     "vignette": (lambda x: optics.apply_vignette(x, 0.5), True),
@@ -114,7 +114,7 @@ IDENTITY_OPS: dict[str, object] = {
     "grain opacity 0": lambda x: grain.apply_grain(
         x, grain.procedural_field(x.shape[0], x.shape[1], x.shape[2], 1.4, 7), grain.TonalResponse(), amount=0.5, opacity=0.0
     ),
-    "dither 0": lambda x: grain.dither(x, seed=7, strength=0.0),
+    "dither 0": lambda x: grain.apply_dither(x, seed=7, strength=0.0),
     "glow 0": lambda x: glow.apply_glow(x, 0.0),
     "halation 0": lambda x: optics.apply_halation(x, 0.0),
     "vignette 0": lambda x: optics.apply_vignette(x, 0.0),

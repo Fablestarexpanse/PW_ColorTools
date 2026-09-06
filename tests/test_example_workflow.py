@@ -26,8 +26,12 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / "example_workflows" / "pw_color_basic.json"
 
 # Widget order as ComfyUI serialises it, which is schema order with
-# `control_after_generate` inserted after each seed. Kept here so that adding a
-# control fails this file loudly instead of shifting every value by one.
+# `control_after_generate` inserted after each seed.
+#
+# This table is checked against the live schemas below rather than trusted: a
+# saved `widgets_values` is positional, so *reordering* two controls of the same
+# type shifts meanings without changing the count, and a length check would see
+# nothing wrong.
 WIDGET_ORDER: dict[str, list[str]] = {
     "PW_MatchSource": ["strength", "space", "max_gain"],
     "PW_Look": [
@@ -133,6 +137,54 @@ def test_the_workflow_names_an_image_comfyui_ships_with(by_type, doc):
 
 
 # -- starts neutral ----------------------------------------------------------
+
+
+#: Values these io types carry as links, not widgets, so they take no slot.
+LINK_TYPES = {"IMAGE", "MASK", "LOOK", "PALETTE"}
+
+
+def _schema_widget_order(cls) -> list[str]:
+    """The widget names ComfyUI will serialise, in the order it serialises them.
+
+    Not schema order: the frontend lays out every required input first and the
+    optional ones after, so PW Optics declares chromatic_aberration last but
+    renders — and saves — it fifth, ahead of the three optional vignette
+    controls. Getting this wrong is the whole hazard, since `widgets_values` is
+    positional.
+    """
+    schema = cls.define_schema()
+    schema.finalize()
+    required, optional = [], []
+    for inp in schema.inputs:
+        if getattr(inp, "io_type", None) in LINK_TYPES:
+            continue
+        into = optional if getattr(inp, "optional", False) else required
+        into.append(inp.id)
+        if inp.id == "seed":
+            # The frontend inserts this control immediately after every seed.
+            into.append("control_after_generate")
+    return required + optional
+
+
+@pytest.mark.parametrize("node_type", sorted(WIDGET_ORDER))
+def test_widget_order_matches_the_live_schema(node_type: str):
+    """The table above must describe the node as it is today.
+
+    Checking the *length* of widgets_values only catches an added or removed
+    control. Swapping two floats keeps the count identical and silently reads
+    every value below under the wrong name — which is exactly the failure the
+    table exists to prevent.
+    """
+    from pw_color.nodes import curves, grain, look, match_source, optics
+
+    classes = {
+        "PW_Look": look.PW_Look,
+        "PW_Curves": curves.PW_Curves,
+        "PW_Optics": optics.PW_Optics,
+        "PW_Grain": grain.PW_Grain,
+        "PW_MatchSource": match_source.PW_MatchSource,
+    }
+    assert WIDGET_ORDER[node_type] == _schema_widget_order(classes[node_type])
 
 
 def _values(node: dict, node_type: str) -> dict:

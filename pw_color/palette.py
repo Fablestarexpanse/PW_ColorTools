@@ -24,19 +24,22 @@ from __future__ import annotations
 import hashlib
 import math
 
+from typing import Literal, get_args
+
 import torch
 
 from . import colour
 from .types import Palette, Swatch, content_hash
 
-__all__ = ["SORT_MODES", "extract_palette", "kmeans_oklab", "CLUSTER_LONG_EDGE"]
+__all__ = ["SORT_MODES", "SortMode", "extract_palette", "kmeans_oklab", "CLUSTER_LONG_EDGE"]
 
 #: Long edge the image is reduced to before clustering. 200px is ~40k samples,
 #: which is far more than k-means needs for k<=12 and keeps extraction instant
 #: even at 4K. Larger does not change the answer; it only costs time.
 CLUSTER_LONG_EDGE = 200
 
-SORT_MODES = ("coverage", "lightness", "hue")
+SortMode = Literal["coverage", "lightness", "hue"]
+SORT_MODES: tuple[str, ...] = get_args(SortMode)
 
 #: Below/above these OKLab L values a pixel counts as near-black / near-white.
 NEAR_BLACK_L = 0.16

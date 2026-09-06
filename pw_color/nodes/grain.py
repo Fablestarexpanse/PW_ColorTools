@@ -14,8 +14,15 @@ from pathlib import Path
 import torch
 from comfy_api.latest import io
 
-from ..grain import DEFAULT_CHROMA, GRAIN_BLEND_MODES, TonalResponse, apply_grain, plate_field, procedural_field
-from ..grain import dither as apply_dither  # aliased: `dither` is also an input name
+from ..grain import (
+    DEFAULT_CHROMA,
+    GRAIN_BLEND_MODES,
+    TonalResponse,
+    apply_dither,
+    apply_grain,
+    plate_field,
+    procedural_field,
+)
 from ..paths import GRAIN_DIR
 from ..preview_server import store_input_for_node, store_output_for_node
 from ..types import Look, LookOp

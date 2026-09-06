@@ -11,6 +11,7 @@
  * reason to want it client-side.
  */
 
+import { toAseBytes, toGpl } from '../core/palette_export.ts';
 import { api, app, chainHandler, getWidget, type NodeLike } from '../comfy.ts';
 import { PW } from '../theme.ts';
 import { fillPanel, hit, roundRect, text, type Ctx, type Rect } from '../widgets/draw.ts';
@@ -145,50 +146,6 @@ function layout(node: NodeLike) {
 
 // -- export ------------------------------------------------------------------
 
-function toGpl(data: PaletteData, name: string): string {
-  const lines = ['GIMP Palette', `Name: ${name}`, `Columns: ${Math.min(data.colors.length, 8)}`, '#'];
-  for (const sw of data.colors) {
-    const r = parseInt(sw.hex.slice(1, 3), 16);
-    const g = parseInt(sw.hex.slice(3, 5), 16);
-    const b = parseInt(sw.hex.slice(5, 7), 16);
-    lines.push(`${String(r).padStart(3)} ${String(g).padStart(3)} ${String(b).padStart(3)}\t${sw.hex}`);
-  }
-  return lines.join('\n') + '\n';
-}
-
-/**
- * Adobe Swatch Exchange. Mirrors `Palette.to_ase_bytes` in Python — big-endian
- * throughout, UTF-16BE names, RGB float triples.
- */
-function toAse(data: PaletteData): Blob {
-  const blocks: ArrayBuffer[] = [];
-  for (const sw of data.colors) {
-    const name = sw.hex + '\0';
-    const bodyLen = 2 + name.length * 2 + 4 + 12 + 2;
-    const buf = new ArrayBuffer(6 + bodyLen);
-    const view = new DataView(buf);
-    let o = 0;
-    view.setUint16(o, 0x0001); o += 2;
-    view.setUint32(o, bodyLen); o += 4;
-    view.setUint16(o, name.length); o += 2;
-    for (let i = 0; i < name.length; i++) { view.setUint16(o, name.charCodeAt(i)); o += 2; }
-    for (const ch of 'RGB ') { view.setUint8(o, ch.charCodeAt(0)); o += 1; }
-    for (let i = 0; i < 3; i++) {
-      view.setFloat32(o, parseInt(sw.hex.slice(1 + i * 2, 3 + i * 2), 16) / 255);
-      o += 4;
-    }
-    view.setUint16(o, 0);
-    blocks.push(buf);
-  }
-  const head = new ArrayBuffer(12);
-  const hv = new DataView(head);
-  for (let i = 0; i < 4; i++) hv.setUint8(i, 'ASEF'.charCodeAt(i));
-  hv.setUint16(4, 1);
-  hv.setUint16(6, 0);
-  hv.setUint32(8, data.colors.length);
-  return new Blob([head, ...blocks], { type: 'application/octet-stream' });
-}
-
 function download(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -216,9 +173,9 @@ function exportPalette(node: NodeLike, format: string): void {
   const name = `pw-palette-${stamp}`;
 
   if (format === 'ase') {
-    download(toAse(data), `${name}.ase`);
+    download(new Blob([toAseBytes(data.colors)], { type: 'application/octet-stream' }), `${name}.ase`);
   } else if (format === 'gpl') {
-    download(new Blob([toGpl(data, name)], { type: 'text/plain' }), `${name}.gpl`);
+    download(new Blob([toGpl(data.colors, name)], { type: 'text/plain' }), `${name}.gpl`);
   } else if (format === 'txt') {
     download(new Blob([data.colors.map((c) => c.hex).join('\n') + '\n'], { type: 'text/plain' }), `${name}.txt`);
   } else if (format === 'css') {

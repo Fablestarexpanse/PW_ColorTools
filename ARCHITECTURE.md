@@ -121,8 +121,14 @@ architecture rests on the two implementations not drifting. Currently:
 | Maths | Python | TypeScript | Test |
 |---|---|---|---|
 | Colour, curves, ops, lattice | `pw_color/` | `web/src/core/` | `test_parity.py` |
-| Grain tonal response | `pw_color/grain.py` | `web/src/nodes/grain.ts` | `test_grain.py` |
+| Grain tonal response | `pw_color/grain.py` | `web/src/core/tonal.ts` | `test_grain.py` |
+| Palette `.ase` / `.gpl` writers | `pw_color/palette_io.py` | `web/src/core/palette_export.ts` | `test_palette_io.py` |
 | Design system palette | `pw_color/theme.py` | `web/src/theme.ts` | `test_theme.py` |
+
+The palette writers were missing from this table for a while, which is the
+failure the table is meant to prevent: two hand-rolled binary writers for the
+same `.ase` format, one behind the node's `save_as` and one behind the
+browser's Export button, with nothing checking they agreed.
 
 `theme.ts` is the source of truth for colour; the Python mirror exists only
 because the palette swatch strip is rendered server-side and has to match the

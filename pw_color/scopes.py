@@ -12,14 +12,17 @@ dependency, and the graticule carries the reading instead.
 
 from __future__ import annotations
 
+from typing import Literal, get_args
+
 import torch
 
 from .colour import hex_to_srgb, luma_bt709, srgb_to_linear
 from .theme import CHANNEL, THEME
 
-__all__ = ["SCOPE_MODES", "render_scope"]
+__all__ = ["SCOPE_MODES", "ScopeMode", "render_scope"]
 
-SCOPE_MODES = ("histogram", "waveform", "parade", "all")
+ScopeMode = Literal["histogram", "waveform", "parade", "all"]
+SCOPE_MODES: tuple[str, ...] = get_args(ScopeMode)
 
 
 def _hex_tensor(value: str, device, dtype) -> torch.Tensor:

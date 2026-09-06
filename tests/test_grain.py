@@ -15,7 +15,7 @@ from pw_color.grain import (
     GRAIN_BLEND_MODES,
     TonalResponse,
     apply_grain,
-    dither,
+    apply_dither,
     plate_field,
     procedural_field,
 )
@@ -344,19 +344,19 @@ def test_tonal_weights_are_a_partition_of_unity():
 
 def test_dither_is_sub_lsb():
     img = _flat(0.5)
-    out = dither(img, seed=1)
+    out = apply_dither(img, seed=1)
     delta = (out - img).abs().max().item() * 255.0
     assert 0.0 < delta <= 1.05, f"dither peak {delta:.3f} code values"
 
 
 def test_dither_is_deterministic():
     img = _flat(0.5)
-    assert torch.equal(dither(img, seed=1), dither(img, seed=1))
+    assert torch.equal(apply_dither(img, seed=1), apply_dither(img, seed=1))
 
 
 def test_dither_zero_strength_is_a_no_op():
     img = _flat(0.5)
-    assert torch.equal(dither(img, seed=1, strength=0.0), img)
+    assert torch.equal(apply_dither(img, seed=1, strength=0.0), img)
 
 
 def test_dither_removes_banding_from_a_soft_gradient():
@@ -370,7 +370,7 @@ def test_dither_removes_banding_from_a_soft_gradient():
     q = lambda x: (x.clamp(0, 1) * 255 + 0.5).floor()
 
     plain = q(ramp)
-    dithered = q(dither(ramp, seed=2))
+    dithered = q(apply_dither(ramp, seed=2))
 
     # Count transitions along the gradient: banding is few, wide steps.
     plain_edges = int((plain[0, 0, 1:, 0] != plain[0, 0, :-1, 0]).sum().item())
@@ -378,12 +378,12 @@ def test_dither_removes_banding_from_a_soft_gradient():
     assert dithered_edges > plain_edges * 4, (plain_edges, dithered_edges)
 
     # And it must not have moved the picture.
-    assert abs(float((dither(ramp, seed=2) - ramp).mean().item())) < 1e-4
+    assert abs(float((apply_dither(ramp, seed=2) - ramp).mean().item())) < 1e-4
 
 
 def test_dither_alpha_passes_through():
     img = torch.cat((_flat(0.5), torch.rand(1, 64, 64, 1)), dim=-1)
-    out = dither(img, seed=1)
+    out = apply_dither(img, seed=1)
     assert torch.equal(out[..., 3:], img[..., 3:])
 
 
