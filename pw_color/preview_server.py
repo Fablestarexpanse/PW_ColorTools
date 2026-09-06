@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any, Awaitable, Callable
 
 from .paths import LOOK_PRESETS
 from .preview_cache import (  # noqa: F401 - re-exported as the pack's preview surface
@@ -63,25 +64,34 @@ _routes_registered = False
 _NO_STORE = {"Cache-Control": "no-store"}
 
 
-def _handlers(web):
-    """The five route handlers, given aiohttp's ``web`` module.
+Handler = Callable[[Any], Awaitable[Any]]
 
-    Built here rather than nested inside `register_routes` so the routing table
-    is one readable list instead of eighty lines of decorated closures. ``web``
-    is passed in because aiohttp is a ComfyUI dependency that is absent when the
-    pack is imported for tests, so it cannot be imported at module scope.
+
+def _bytes_handler(web: Any, fetch: Callable[[str], dict | None], key: str, missing: str, content_type: str) -> Handler:
+    """Serve one cached blob, or 404 with a reason.
+
+    Three of the five routes are exactly this and differ only in which cache
+    they read, which key holds the bytes, and the content type.
     """
 
-    def _cached(fetch, key: str, missing: str, content_type: str):
-        async def handler(request):
-            entry = fetch(request.match_info["node_id"])
-            if entry is None:
-                return web.json_response({"error": missing}, status=404)
-            return web.Response(body=entry[key], content_type=content_type, headers=_NO_STORE)
+    async def handler(request: Any) -> Any:
+        entry = fetch(request.match_info["node_id"])
+        if entry is None:
+            return web.json_response({"error": missing}, status=404)
+        return web.Response(body=entry[key], content_type=content_type, headers=_NO_STORE)
 
-        return handler
+    return handler
 
-    async def histogram(request):
+
+def _histogram_handler(web: Any) -> Handler:
+    """The input histogram, computed from the full-resolution image.
+
+    Not from the proxy: a histogram of a downscale is not the histogram of the
+    image, because resampling fills in the gaps that make a posterised source
+    obvious.
+    """
+
+    async def handler(request: Any) -> Any:
         entry = get(request.match_info["node_id"])
         if entry is None:
             return web.json_response({"error": "no cached input"}, status=404)
@@ -89,24 +99,38 @@ def _handlers(web):
             {"histogram": entry["histogram"], "width": entry["width"], "height": entry["height"]}
         )
 
-    async def presets(_request):
-        """Look presets, so the node can bake each one onto the user's own image.
+    return handler
 
-        Served rather than bundled into the JS: presets are data, and a user
-        dropping a file into looks/ should not need a rebuild to see it.
-        """
+
+def _presets_handler(web: Any) -> Handler:
+    """Look presets, so the node can bake each one onto the user's own image.
+
+    Served rather than bundled into the JS: presets are data, and a user
+    dropping a file into looks/ should not need a rebuild to see it.
+    """
+
+    async def handler(_request: Any) -> Any:
         try:
             return web.json_response(json.loads(LOOK_PRESETS.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             _log.exception("PW Color: could not read %s", LOOK_PRESETS)
             return web.json_response({"presets": []})
 
+    return handler
+
+
+def _routing_table(web: Any) -> list[tuple[str, Handler]]:
+    """Every route this pack serves, in one readable list.
+
+    ``web`` is passed in rather than imported at module scope because aiohttp
+    is a ComfyUI dependency, absent when the pack is imported for tests.
+    """
     return [
-        ("/pw_color/input/{node_id}", _cached(get, "proxy", "no cached input", "image/jpeg")),
-        ("/pw_color/histogram/{node_id}", histogram),
-        ("/pw_color/output/{node_id}", _cached(get_output, "proxy", "no cached output", "image/jpeg")),
-        ("/pw_color/output_crop/{node_id}", _cached(get_output, "crop", "no cached output", "image/png")),
-        ("/pw_color/presets", presets),
+        ("/pw_color/input/{node_id}", _bytes_handler(web, get, "proxy", "no cached input", "image/jpeg")),
+        ("/pw_color/histogram/{node_id}", _histogram_handler(web)),
+        ("/pw_color/output/{node_id}", _bytes_handler(web, get_output, "proxy", "no cached output", "image/jpeg")),
+        ("/pw_color/output_crop/{node_id}", _bytes_handler(web, get_output, "crop", "no cached output", "image/png")),
+        ("/pw_color/presets", _presets_handler(web)),
     ]
 
 
@@ -138,7 +162,7 @@ def register_routes() -> bool:
         _log.debug("PW Color: preview routes unavailable", exc_info=True)
         return False
 
-    for path, handler in _handlers(web):
+    for path, handler in _routing_table(web):
         routes.get(path)(handler)
 
     _routes_registered = True

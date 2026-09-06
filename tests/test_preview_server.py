@@ -233,3 +233,105 @@ def test_register_routes_is_idempotent(monkeypatch):
 
     assert ps.register_routes() is True
     assert len(registered) == first, "a second call registered the routes again"
+
+
+# -- the routes themselves ---------------------------------------------------
+
+
+class _FakeWeb:
+    """Just enough of aiohttp.web to call a handler and read what it returned.
+
+    The real thing is a ComfyUI dependency and pulling it in would make these
+    tests skip on a bare checkout; the handlers only use these two constructors.
+    """
+
+    class Response:
+        def __init__(self, body=None, content_type=None, headers=None):
+            self.body = body
+            self.content_type = content_type
+            self.headers = headers or {}
+            self.status = 200
+
+    class _Json:
+        def __init__(self, data, status):
+            self.data = data
+            self.status = status
+
+    @staticmethod
+    def json_response(data, status=200):
+        return _FakeWeb._Json(data, status)
+
+
+class _Request:
+    def __init__(self, node_id: str):
+        self.match_info = {"node_id": node_id}
+
+
+def _routes() -> dict:
+    return dict(ps._routing_table(_FakeWeb))
+
+
+def _call(path: str, node_id: str = "n"):
+    import asyncio
+
+    return asyncio.run(_routes()[path](_Request(node_id)))
+
+
+def test_every_route_the_frontend_calls_is_registered():
+    """The browser hardcodes these paths; a rename here is a silent 404 there."""
+    assert set(_routes()) == {
+        "/pw_color/input/{node_id}",
+        "/pw_color/histogram/{node_id}",
+        "/pw_color/output/{node_id}",
+        "/pw_color/output_crop/{node_id}",
+        "/pw_color/presets",
+    }
+
+
+def test_input_route_serves_the_cached_jpeg():
+    ps.store("n", _image())
+    res = _call("/pw_color/input/{node_id}")
+    assert res.content_type == "image/jpeg"
+    assert res.body[:2] == b"\xff\xd8"
+    assert res.headers["Cache-Control"] == "no-store", "a stale preview is worse than none"
+
+
+def test_output_crop_route_serves_png_not_jpeg():
+    """JPEG smooths high-frequency detail, which is precisely what grain is."""
+    ps.store_output("n", _image())
+    res = _call("/pw_color/output_crop/{node_id}")
+    assert res.content_type == "image/png"
+    assert res.body[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_histogram_route_returns_the_bins_and_the_true_size():
+    ps.store("n", _image(h=32, w=48))
+    res = _call("/pw_color/histogram/{node_id}")
+    assert res.status == 200
+    assert res.data["width"] == 48 and res.data["height"] == 32
+    assert len(res.data["histogram"]["luma"]) == 256
+
+
+def test_asking_for_a_node_with_nothing_cached_is_a_404_not_a_crash():
+    """Normal, not exceptional: the browser asks before the node has run."""
+    for path in ("/pw_color/input/{node_id}", "/pw_color/output/{node_id}", "/pw_color/output_crop/{node_id}"):
+        res = _call(path, "never-seen")
+        assert res.status == 404, path
+        assert "error" in res.data
+
+
+def test_presets_route_serves_the_shipped_file():
+    res = _call("/pw_color/presets")
+    assert res.status == 200
+    ids = [p["id"] for p in res.data["presets"]]
+    assert "none" in ids and len(ids) > 1
+
+
+def test_presets_route_degrades_to_empty_rather_than_failing(monkeypatch, tmp_path):
+    """A malformed presets file must cost the preset strip, not the editor."""
+    bad = tmp_path / "presets.json"
+    bad.write_text("{ not json", encoding="utf-8")
+    monkeypatch.setattr(ps, "LOOK_PRESETS", bad)
+    res = _call("/pw_color/presets")
+    assert res.status == 200
+    assert res.data == {"presets": []}

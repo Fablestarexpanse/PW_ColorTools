@@ -55,7 +55,9 @@ PROXY_LONG_EDGE = 512
 #: no preview at all. A native-resolution crop shows it at true size.
 CROP_EDGE = 512
 MAX_ENTRIES = 24
-MAX_BYTES = 48 * 1024 * 1024
+#: Bytes in a megabyte, so the cache ceiling reads as one.
+MEGABYTE = 1024 * 1024
+MAX_BYTES = 48 * MEGABYTE
 
 
 
