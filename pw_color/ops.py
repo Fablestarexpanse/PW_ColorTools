@@ -22,6 +22,7 @@ import torch
 
 from . import colour, look
 from .curve import eval_curve
+from .lattice import SampleFn
 
 __all__ = ["apply_op", "build_sample_fn"]
 
@@ -148,7 +149,7 @@ def apply_op(rgb: torch.Tensor, op: dict[str, Any]) -> torch.Tensor:
     return out if s >= 1.0 else torch.lerp(rgb, out, s)
 
 
-def build_sample_fn(ops: list[dict[str, Any]]):
+def build_sample_fn(ops: list[dict[str, Any]]) -> SampleFn:
     """Fold a list of LOOK ops into a single :data:`~pw_color.lattice.SampleFn`."""
 
     def fn(pts: torch.Tensor) -> torch.Tensor:

@@ -319,7 +319,8 @@ def test_every_node_module_exports_nodes():
     from pathlib import Path
 
     pkg = Path(__file__).resolve().parents[1] / "pw_color" / "nodes"
-    names = [m.name for m in pkgutil.iter_modules([str(pkg)])]
+    # Underscore-prefixed modules are shared helpers, not nodes.
+    names = [m.name for m in pkgutil.iter_modules([str(pkg)]) if not m.name.startswith("_")]
     assert names, "no node modules found"
     for name in names:
         src = (pkg / f"{name}.py").read_text(encoding="utf-8")
@@ -373,28 +374,38 @@ def test_readme_images_all_exist():
 
 
 def test_every_look_emitting_node_can_also_receive_one():
-    """The LOOK wire is what makes the pack a chain rather than five nodes.
+    """The LOOK wire is what makes the pack a chain rather than eight nodes.
 
     A node that emits a LOOK but cannot accept one truncates the stack the
     moment someone puts it mid-chain, silently — the image still flows, so
     nothing looks wrong until a .cube export is missing half the grade. This
     caught PW_MatchSource, which was the only one.
+
+    Read from the live schemas rather than from the source text: the shared
+    `_schema` helpers mean the literal `io.Custom("LOOK")` no longer appears in
+    any node file, and a grep-based version of this test would now pass by
+    finding nothing.
     """
-    import re
-    from pathlib import Path
+    import pytest as _pytest
 
-    pkg = Path(__file__).resolve().parents[1] / "pw_color" / "nodes"
-    for path in sorted(pkg.glob("*.py")):
-        src = path.read_text(encoding="utf-8")
-        if 'io.Custom("LOOK").Output' not in src:
-            continue
-        assert 'io.Custom("LOOK").Input' in src, (
-            f"{path.name} emits a LOOK but cannot receive one, so it truncates "
-            f"any grade stack upstream of it"
-        )
-        name = re.search(r'io\.Custom\("LOOK"\)\.Input\(\s*"(\w+)"', src)
-        assert name, f"{path.name}: could not read the LOOK input's name"
+    _pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")
+    from pw_color.nodes import curves, grain, look, look_io, match_source, optics, palette, scopes
 
+    checked = 0
+    for module in (curves, grain, look, look_io, match_source, optics, palette, scopes):
+        for cls in module.NODES:
+            schema = cls.define_schema()
+            schema.finalize()
+            emits = any(getattr(o, "io_type", None) == "LOOK" for o in schema.outputs)
+            if not emits:
+                continue
+            receives = [i for i in schema.inputs if getattr(i, "io_type", None) == "LOOK"]
+            assert receives, (
+                f"{cls.__name__} emits a LOOK but cannot receive one, so it "
+                f"truncates any grade stack upstream of it"
+            )
+            checked += 1
+    assert checked >= 5, f"expected several LOOK-emitting nodes, found {checked}"
 
 def test_no_source_file_contains_a_control_character():
     """A stray NUL or other control byte in a source file is a syntax error

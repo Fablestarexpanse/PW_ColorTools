@@ -24,6 +24,7 @@ import json
 import torch
 from comfy_api.latest import io
 
+from ._schema import image_and_look_outputs, look_in
 from ..blend import BLEND_MODES, composite
 from ..colour import with_alpha_of
 from ..glow import apply_glow
@@ -220,12 +221,9 @@ class PW_Look(io.ComfyNode):
                         "saturated areas versus 5 at 65³. The extra bake is around 30 ms."
                     ),
                 ),
-                io.Custom("LOOK").Input("look_in", optional=True),
+                look_in(),
             ],
-            outputs=[
-                io.Image.Output(display_name="image"),
-                io.Custom("LOOK").Output(display_name="look"),
-            ],
+            outputs=image_and_look_outputs(),
             hidden=[io.Hidden.unique_id],
         )
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 import torch
 from comfy_api.latest import io
 
+from ._schema import image_and_look_outputs, look_in
 from ..optics import apply_chromatic_aberration, apply_halation, apply_vignette
 from ..preview_server import store_input_for_node, store_output_for_node
 from ..types import Look, LookOp
@@ -77,12 +78,9 @@ class PW_Optics(io.ComfyNode):
                     tooltip="Radial red/blue separation, growing toward the edges as a real lens does.",
                     display_mode=io.NumberDisplay.slider,
                 ),
-                io.Custom("LOOK").Input("look_in", optional=True),
+                look_in(),
             ],
-            outputs=[
-                io.Image.Output(display_name="image"),
-                io.Custom("LOOK").Output(display_name="look"),
-            ],
+            outputs=image_and_look_outputs(),
             hidden=[io.Hidden.unique_id],
         )
 

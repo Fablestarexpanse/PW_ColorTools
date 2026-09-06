@@ -22,6 +22,7 @@ import json
 import torch
 from comfy_api.latest import io
 
+from ._schema import image_and_look_outputs, look_in
 from ..curve import IDENTITY_POINTS
 from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from ..ops import build_sample_fn
@@ -114,16 +115,9 @@ class PW_Curves(io.ComfyNode):
                     optional=True,
                     tooltip=f"Bake at {FINAL_SIZE}³ instead of {DEFAULT_SIZE}³. Slower, marginally more accurate.",
                 ),
-                io.Custom("LOOK").Input(
-                    "look_in",
-                    optional=True,
-                    tooltip="Upstream grade stack. This node appends to it.",
-                ),
+                look_in(),
             ],
-            outputs=[
-                io.Image.Output(display_name="image"),
-                io.Custom("LOOK").Output(display_name="look"),
-            ],
+            outputs=image_and_look_outputs(),
             hidden=[io.Hidden.unique_id],
         )
 

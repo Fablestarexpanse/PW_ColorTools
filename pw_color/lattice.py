@@ -272,7 +272,7 @@ class Lattice:
         if enc == "u16":
             lo = float(obj.get("out_min", 0.0))
             hi = float(obj.get("out_max", 1.0))
-            arr = np.frombuffer(raw, dtype="<u2").astype("float32") / 65535.0
+            arr = np.frombuffer(raw, dtype="<u2").astype("float32") / float(U16_MAX)
             arr = arr * (hi - lo) + lo
         elif enc == "f32":
             arr = np.frombuffer(raw, dtype="<f4").astype("float32")

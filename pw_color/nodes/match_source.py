@@ -20,6 +20,7 @@ from __future__ import annotations
 import torch
 from comfy_api.latest import io
 
+from ._schema import image_and_look_outputs, look_in
 from ..match import MATCH_SPACES, match_mean_std
 from ..types import Look, LookOp
 
@@ -81,16 +82,9 @@ class PW_MatchSource(io.ComfyNode):
                     ),
                     display_mode=io.NumberDisplay.slider,
                 ),
-                io.Custom("LOOK").Input(
-                    "look_in",
-                    optional=True,
-                    tooltip="Upstream grade stack. This node appends to it.",
-                ),
+                look_in(),
             ],
-            outputs=[
-                io.Image.Output(display_name="image"),
-                io.Custom("LOOK").Output(display_name="look"),
-            ],
+            outputs=image_and_look_outputs(),
         )
 
     @classmethod
