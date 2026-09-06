@@ -27,6 +27,10 @@ THEME: dict[str, str] = {
     "textMute": "#8F8AA3",
     "accent": "#7F77DD",
     "onAccent": "#1A172E",
+    # Not a channel: the accent for the grain response curve and the
+    # approximate-preview badge. It used to live in CHANNEL, whose other
+    # four keys are the colour channels the scopes and curve tabs index by.
+    "warm": "#E0A44C",
 }
 
 CHANNEL: dict[str, str] = {
@@ -34,7 +38,6 @@ CHANNEL: dict[str, str] = {
     "r": "#D96A6A",
     "g": "#7FBF9E",
     "b": "#7FA8DD",
-    "warm": "#E0A44C",
 }
 
 PORT: dict[str, str] = {

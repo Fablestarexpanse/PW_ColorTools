@@ -63,16 +63,19 @@ var PW = {
     // values, hints
     accent: "#7F77DD",
     // Promptwaffle purple
-    onAccent: "#1A172E"
+    onAccent: "#1A172E",
     // text on accent fills
+    // Not a channel: the accent for the grain response curve and the
+    // approximate-preview badge. It used to live in `channel`, whose other
+    // four keys are the colour channels scopes and curve tabs index by.
+    warm: "#E0A44C"
   },
   /** Curve editor channel tabs and scope traces. */
   channel: {
     luma: "#F0EEF8",
     r: "#D96A6A",
     g: "#7FBF9E",
-    b: "#7FA8DD",
-    warm: "#E0A44C"
+    b: "#7FA8DD"
   },
   /** Port colours, applied to the custom types on extension registration. */
   port: {
@@ -127,7 +130,7 @@ var PW = {
 var BADGE = {
   lut: { label: "LUT", fill: PW.color.chipActive, text: PW.color.text },
   render: { label: "render only", fill: PW.color.surface, text: PW.color.textMute },
-  approx: { label: "preview approximate", fill: PW.color.surface, text: PW.channel.warm }
+  approx: { label: "preview approximate", fill: PW.color.surface, text: PW.color.warm }
 };
 
 // src/core/curve.ts
@@ -2079,7 +2082,7 @@ function drawResponse(ctx, r, node) {
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
-  ctx.strokeStyle = PW.channel.warm;
+  ctx.strokeStyle = PW.color.warm;
   ctx.lineWidth = 2;
   ctx.stroke();
   text(ctx, "shadows", r.x + 4, r.y + 10, { colour: PW.color.textMute });

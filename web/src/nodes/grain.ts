@@ -70,7 +70,7 @@ function drawResponse(ctx: Ctx, r: Rect, node: NodeLike): void {
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
-  ctx.strokeStyle = PW.channel.warm;
+  ctx.strokeStyle = PW.color.warm;
   ctx.lineWidth = 2;
   ctx.stroke();
 

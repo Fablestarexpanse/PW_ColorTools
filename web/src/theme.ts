@@ -27,6 +27,10 @@ export const PW = {
     textMute: '#8F8AA3', // values, hints
     accent: '#7F77DD', // Promptwaffle purple
     onAccent: '#1A172E', // text on accent fills
+    // Not a channel: the accent for the grain response curve and the
+    // approximate-preview badge. It used to live in `channel`, whose other
+    // four keys are the colour channels scopes and curve tabs index by.
+    warm: '#E0A44C',
   },
 
   /** Curve editor channel tabs and scope traces. */
@@ -35,7 +39,6 @@ export const PW = {
     r: '#D96A6A',
     g: '#7FBF9E',
     b: '#7FA8DD',
-    warm: '#E0A44C',
   },
 
   /** Port colours, applied to the custom types on extension registration. */
@@ -97,7 +100,7 @@ export const PW = {
 export const BADGE = {
   lut: { label: 'LUT', fill: PW.color.chipActive, text: PW.color.text },
   render: { label: 'render only', fill: PW.color.surface, text: PW.color.textMute },
-  approx: { label: 'preview approximate', fill: PW.color.surface, text: PW.channel.warm },
+  approx: { label: 'preview approximate', fill: PW.color.surface, text: PW.color.warm },
 } as const;
 
 /** Emit the palette as CSS custom properties for the DOM overlay elements. */
