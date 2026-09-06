@@ -29,7 +29,7 @@ from pathlib import Path
 
 from .paths import PACK_ROOT
 
-__all__ = ["output_root", "user_dir", "ensure_dir", "safe_name", "newest_first"]
+__all__ = ["output_root", "user_dir", "safe_name", "newest_first"]
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9 ._-]")
 
@@ -46,15 +46,8 @@ def output_root() -> Path:
 
 
 def user_dir(name: str) -> Path:
-    """Where ``name`` is saved. Does not create it — see `ensure_dir`."""
+    """Where ``name`` is saved. Deliberately does not create it."""
     return output_root() / name
-
-
-def ensure_dir(name: str) -> Path:
-    """`user_dir`, created. Call this when about to write, not when listing."""
-    d = user_dir(name)
-    d.mkdir(parents=True, exist_ok=True)
-    return d
 
 
 def safe_name(name: str, ext: str, fallback: str) -> str:

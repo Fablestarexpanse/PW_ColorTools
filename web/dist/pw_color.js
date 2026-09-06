@@ -1934,6 +1934,20 @@ function registerCurves() {
   });
 }
 
+// src/core/tonal.ts
+var EDGE_FALLOFF = 0.04;
+function smoothstep2(e0, e1, x) {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
+function tonalWeight(t, shadows, midtones, highlights) {
+  const shadow = 1 - smoothstep2(0, 0.5, t);
+  const highlight = smoothstep2(0.5, 1, t);
+  const mid = Math.max(0, 1 - shadow - highlight);
+  const w = shadow * shadows + mid * midtones + highlight * highlights;
+  return w * smoothstep2(0, EDGE_FALLOFF, t) * smoothstep2(0, EDGE_FALLOFF, 1 - t);
+}
+
 // src/nodes/spatial_preview.ts
 var M2 = PW.metrics;
 var HEADER_H2 = 18;
@@ -2020,18 +2034,6 @@ function attachSpatialPreview(nodeType, opts) {
 // src/nodes/grain.ts
 var M3 = PW.metrics;
 var PANEL_H = 96;
-var EDGE_FALLOFF = 0.04;
-function smoothstep2(e0, e1, x) {
-  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
-  return t * t * (3 - 2 * t);
-}
-function tonalWeight(t, shadows, mids, highlights) {
-  const shadow = 1 - smoothstep2(0, 0.5, t);
-  const highlight = smoothstep2(0.5, 1, t);
-  const mid = Math.max(0, 1 - shadow - highlight);
-  const w = shadow * shadows + mid * mids + highlight * highlights;
-  return w * smoothstep2(0, EDGE_FALLOFF, t) * smoothstep2(0, EDGE_FALLOFF, 1 - t);
-}
 function num(node, name, fallback) {
   const v = getWidget(node, name)?.value;
   return typeof v === "number" ? v : fallback;

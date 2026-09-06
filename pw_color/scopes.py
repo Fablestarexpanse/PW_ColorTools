@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import torch
 
-from .colour import luma_bt709, srgb_to_linear
+from .colour import hex_to_srgb, luma_bt709, srgb_to_linear
 from .theme import CHANNEL, THEME
 
 __all__ = ["SCOPE_MODES", "render_scope"]
@@ -22,13 +22,14 @@ __all__ = ["SCOPE_MODES", "render_scope"]
 SCOPE_MODES = ("histogram", "waveform", "parade", "all")
 
 
-def _hex(value: str, device, dtype) -> torch.Tensor:
-    v = value.lstrip("#")
-    return torch.tensor([int(v[i : i + 2], 16) / 255.0 for i in (0, 2, 4)], device=device, dtype=dtype)
+def _hex_tensor(value: str, device, dtype) -> torch.Tensor:
+    """A theme colour as an RGB tensor. Named for what it returns, like
+    `colour.hex_to_srgb`, whose parse it uses rather than repeating."""
+    return torch.tensor(hex_to_srgb(value), device=device, dtype=dtype)
 
 
 def _panel(h: int, w: int, device, dtype) -> torch.Tensor:
-    return _hex(THEME["well"], device, dtype).view(1, 1, 3).expand(h, w, 3).clone()
+    return _hex_tensor(THEME["well"], device, dtype).view(1, 1, 3).expand(h, w, 3).clone()
 
 
 def _graticule(canvas: torch.Tensor, divisions: int = 4) -> None:
@@ -38,7 +39,7 @@ def _graticule(canvas: torch.Tensor, divisions: int = 4) -> None:
     reading IRE, and a dense grid makes a small scope unreadable.
     """
     h, w, _ = canvas.shape
-    grid = _hex(THEME["grid"], canvas.device, canvas.dtype)
+    grid = _hex_tensor(THEME["grid"], canvas.device, canvas.dtype)
     for i in range(1, divisions):
         y = int(h * i / divisions)
         x = int(w * i / divisions)
@@ -72,7 +73,7 @@ def _histogram(image: torch.Tensor, h: int, w: int, bins: int = 256) -> torch.Te
         heights = (norm[col] * (h - 2)).round().to(torch.int64)
         rows = torch.arange(h, device=dev).view(h, 1)
         mask = rows >= (h - heights).view(1, w)
-        colour = _hex(CHANNEL[key], dev, dt).view(1, 1, 3)
+        colour = _hex_tensor(CHANNEL[key], dev, dt).view(1, 1, 3)
         # Additive so overlaps read as the mixed colour, which is the whole
         # point of an overlaid histogram.
         canvas = torch.where(mask.unsqueeze(-1), (canvas + colour * 0.75).clamp(max=1.0), canvas)
@@ -114,7 +115,7 @@ def _waveform(image: torch.Tensor, h: int, w: int) -> torch.Tensor:
     _graticule(canvas)
     lum = luma_bt709(srgb_to_linear(image[0, ..., :3].clamp(0, 1))).clamp(0, 1).pow(1 / 2.2)
     dens = _waveform_channel(lum, h, w, 256).to(dt)
-    trace = _hex(CHANNEL["luma"], dev, dt).view(1, 1, 3)
+    trace = _hex_tensor(CHANNEL["luma"], dev, dt).view(1, 1, 3)
     return (canvas + trace * dens.unsqueeze(-1)).clamp(max=1.0)
 
 
@@ -129,7 +130,7 @@ def _parade(image: torch.Tensor, h: int, w: int) -> torch.Tensor:
         sub = _panel(h, cw, dev, dt)
         _graticule(sub)
         dens = _waveform_channel(image[0, ..., i].clamp(0, 1), h, cw, 256).to(dt)
-        trace = _hex(CHANNEL[key], dev, dt).view(1, 1, 3)
+        trace = _hex_tensor(CHANNEL[key], dev, dt).view(1, 1, 3)
         canvas[:, x0 : x0 + cw, :] = (sub + trace * dens.unsqueeze(-1)).clamp(max=1.0)
     return canvas
 

@@ -18,7 +18,7 @@ import torch
 from .blur import gaussian_blur, sigma_for_size
 from .colour import linear_to_srgb, luma_bt709, srgb_to_linear, with_alpha_of
 
-__all__ = ["apply_glow", "gaussian_blur"]
+__all__ = ["apply_glow"]
 
 
 def apply_glow(

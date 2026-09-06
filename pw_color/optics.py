@@ -18,7 +18,7 @@ import torch
 from .blur import gaussian_blur, sigma_for_size
 from .colour import linear_to_srgb, luma_bt709, srgb_to_linear, with_alpha_of
 
-__all__ = ["apply_halation", "apply_vignette", "apply_chromatic_aberration", "gaussian_blur"]
+__all__ = ["apply_halation", "apply_vignette", "apply_chromatic_aberration"]
 
 
 def apply_halation(

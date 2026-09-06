@@ -9,9 +9,17 @@ Tier one, shipped: per-channel mean and standard deviation matching. Simple,
 predictable, and enough for the drift a VAE introduces, which is close to an
 affine shift per channel.
 
-Tier two, structured for but not built: a least-squares fit of a tone curve
-plus a 3x3 matrix. That handles cross-channel contamination, which mean/std
-cannot, at the cost of being able to fail in ways a user cannot predict.
+Tier two, also shipped: a quantile tone match followed by a 3x3 colour
+transport. That handles cross-channel contamination, which mean/std cannot, at
+the cost of being able to fail in ways a user cannot predict.
+
+Tier two is called ``match_least_squares`` and its UI option is
+``least_squares``, which is a misnomer: there is no least-squares solve in it.
+It began as one, became a Cholesky covariance transport when the least-squares
+formulation turned out to assume pixel correspondence between two images that
+are usually different photographs, and kept the name because the name is in
+every saved workflow that uses it. What it does is described honestly on the
+function; the identifier is a compatibility artefact, not a claim.
 """
 
 from __future__ import annotations
@@ -188,18 +196,20 @@ def match_least_squares(
     matrix_strength: float = 1.0,
     max_gain: float = 4.0,
 ) -> torch.Tensor:
-    """Tier two: a tone curve plus a 3x3 matrix, fitted by least squares.
+    """Tier two: a quantile tone match, then a 3x3 colour transport.
 
-    Two stages, in this order for a reason:
+    Despite the name there is no least-squares solve here — see the module
+    docstring for why the name stayed. Two stages, in this order for a reason:
 
     1. **Tone.** Match the luminance distribution by histogram-matching a
        monotone set of quantiles. This absorbs the overall contrast difference
        so that the matrix does not have to express it as a scale, which it
        cannot do without also shifting hue.
-    2. **Colour.** Solve for the 3x3 that best maps the tone-matched image onto
-       the reference in OKLab. A full matrix is what lets this express
-       cross-channel behaviour — teal shadows against neutral highlights — that
-       per-channel mean/std matching provably cannot.
+    2. **Colour.** Transport the tone-matched image's OKLab distribution onto
+       the reference's, by whitening with one Cholesky factor and re-colouring
+       with the other. A full matrix is what lets this express cross-channel
+       behaviour — teal shadows against neutral highlights — that per-channel
+       mean/std matching provably cannot.
 
     Fitted on *statistics*, not on pixel correspondence: the two images do not
     need to be the same scene, and are usually not. The matrix is solved with a
@@ -262,11 +272,11 @@ def match_least_squares(
     if matrix_strength > 0.0:
         a = colour.srgb_to_oklab(toned)
         b = colour.srgb_to_oklab(r)
-        sw, rwv = w.unsqueeze(-1), rw.unsqueeze(-1)
+        src_w, ref_w = w.unsqueeze(-1), rw.unsqueeze(-1)
         mass = w.sum().clamp(min=1e-9)
         rmass = rw.sum().clamp(min=1e-9)
-        a_mean = (a * sw).sum(0) / mass
-        b_mean = (b * rwv).sum(0) / rmass
+        a_mean = (a * src_w).sum(0) / mass
+        b_mean = (b * ref_w).sum(0) / rmass
         ac, bc = a - a_mean, b - b_mean
 
         # Match the two *distributions*, via their covariances. Emphatically
@@ -281,18 +291,20 @@ def match_least_squares(
         # cross-channel looks reproducible: a split-tone shows up as covariance
         # between OKLab L and b, and a full 3x3 carries that where per-channel
         # statistics cannot.
-        caa = (ac * sw).T @ ac / mass
-        cbb = (bc * rwv).T @ bc / rmass
-        eye = torch.eye(3, dtype=caa.dtype, device=caa.device)
-        ridge_a = eye * (float(caa.diagonal().mean()) * 1e-4 + 1e-9)
-        ridge_b = eye * (float(cbb.diagonal().mean()) * 1e-4 + 1e-9)
+        cov_src = (ac * src_w).T @ ac / mass
+        cov_ref = (bc * ref_w).T @ bc / rmass
+        eye = torch.eye(3, dtype=cov_src.dtype, device=cov_src.device)
+        ridge_src = eye * (float(cov_src.diagonal().mean()) * 1e-4 + 1e-9)
+        ridge_ref = eye * (float(cov_ref.diagonal().mean()) * 1e-4 + 1e-9)
         try:
-            ls = torch.linalg.cholesky(caa + ridge_a)
-            lt = torch.linalg.cholesky(cbb + ridge_b)
-            # Row vectors, so y = ac @ M with M = inv(Ls)^T @ Lt^T. Solving
-            # Ls^T X = Lt^T gives exactly that; note this is a left-solve
-            # against the transpose, not a right-solve against Ls.
-            m = torch.linalg.solve_triangular(ls.transpose(-1, -2), lt.transpose(-1, -2), upper=True, left=True)
+            chol_src = torch.linalg.cholesky(cov_src + ridge_src)
+            chol_ref = torch.linalg.cholesky(cov_ref + ridge_ref)
+            # Row vectors, so y = ac @ M with M = inv(chol_src)^T @ chol_ref^T.
+            # Solving chol_src^T X = chol_ref^T gives exactly that; note this is
+            # a left-solve against the transpose, not a right-solve.
+            m = torch.linalg.solve_triangular(
+                chol_src.transpose(-1, -2), chol_ref.transpose(-1, -2), upper=True, left=True
+            )
         except Exception:
             # A degenerate palette (a flat frame) has no covariance to match.
             # Falling back to the identity leaves the tone match in place,

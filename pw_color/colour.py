@@ -19,6 +19,8 @@ these without touching call sites.
 
 from __future__ import annotations
 
+from typing import Iterable
+
 import torch
 
 __all__ = [
@@ -183,10 +185,11 @@ def hex_to_srgb(value: str) -> tuple[float, float, float]:
         v = "".join(c * 2 for c in v)
     if len(v) != 6:
         raise ValueError(f"not a hex colour: {value!r}")
-    return tuple(int(v[i : i + 2], 16) / 255.0 for i in (0, 2, 4))  # type: ignore[return-value]
+    r, g, b = (int(v[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+    return r, g, b
 
 
-def srgb_to_hex(rgb) -> str:
+def srgb_to_hex(rgb: Iterable[float]) -> str:
     """sRGB-encoded floats -> ``"#RRGGBB"``, rounded half-up and clamped."""
     out = []
     for c in rgb:

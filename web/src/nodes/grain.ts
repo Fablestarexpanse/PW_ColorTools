@@ -11,6 +11,7 @@
  * architecture is explicit that the LUT/spatial split gets surfaced.
  */
 
+import { tonalWeight } from '../core/tonal.ts';
 import { app, getWidget, type NodeLike } from '../comfy.ts';
 import { BADGE, PW } from '../theme.ts';
 import { fillPanel, hairline, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
@@ -18,25 +19,6 @@ import { attachSpatialPreview } from './spatial_preview.ts';
 
 const M = PW.metrics;
 const PANEL_H = 96;
-const EDGE_FALLOFF = 0.04; // mirrors EDGE_FALLOFF in pw_color/grain.py
-
-function smoothstep(e0: number, e1: number, x: number): number {
-  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
-  return t * t * (3 - 2 * t);
-}
-
-/**
- * The tonal weight at a given perceptual position. Line-for-line the same as
- * `TonalResponse.weight` in Python, so the curve drawn here is the curve the
- * renderer applies — not an impression of it.
- */
-function tonalWeight(t: number, shadows: number, mids: number, highlights: number): number {
-  const shadow = 1 - smoothstep(0, 0.5, t);
-  const highlight = smoothstep(0.5, 1, t);
-  const mid = Math.max(0, 1 - shadow - highlight);
-  const w = shadow * shadows + mid * mids + highlight * highlights;
-  return w * smoothstep(0, EDGE_FALLOFF, t) * smoothstep(0, EDGE_FALLOFF, 1 - t);
-}
 
 function num(node: NodeLike, name: string, fallback: number): number {
   const v = getWidget(node, name)?.value;

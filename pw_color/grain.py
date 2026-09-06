@@ -40,6 +40,7 @@ __all__ = [
     "plate_field",
     "apply_grain",
     "dither",
+    "DEFAULT_CHROMA",
 ]
 
 #: Blend modes offered for grain. The Photoshop set our audience already knows.
@@ -68,11 +69,11 @@ class TonalResponse:
     rather than as three independent gains that interact confusingly.
     """
 
-    __slots__ = ("shadows", "mids", "highlights")
+    __slots__ = ("shadows", "midtones", "highlights")
 
-    def __init__(self, shadows: float = 0.20, mids: float = 1.00, highlights: float = 0.10) -> None:
+    def __init__(self, shadows: float = 0.20, midtones: float = 1.00, highlights: float = 0.10) -> None:
         self.shadows = float(shadows)
-        self.mids = float(mids)
+        self.midtones = float(midtones)
         self.highlights = float(highlights)
 
     def weight(self, image: torch.Tensor) -> torch.Tensor:
@@ -89,7 +90,7 @@ class TonalResponse:
         highlight = _smoothstep(0.5, 1.0, t)
         mid = (1.0 - shadow - highlight).clamp(min=0.0)
 
-        w = shadow * self.shadows + mid * self.mids + highlight * self.highlights
+        w = shadow * self.shadows + mid * self.midtones + highlight * self.highlights
         falloff = _smoothstep(0.0, EDGE_FALLOFF, t) * _smoothstep(0.0, EDGE_FALLOFF, 1.0 - t)
         return (w * falloff).unsqueeze(-1)
 

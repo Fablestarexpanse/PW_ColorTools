@@ -23,20 +23,14 @@ import torch
 from . import colour, look
 from .curve import eval_curve
 
-__all__ = ["apply_op", "build_sample_fn", "LUT_SAFE_OPS"]
+__all__ = ["apply_op", "build_sample_fn"]
 
-#: Ops that can be baked into a lattice. Everything not in here is render-only.
-LUT_SAFE_OPS = (
-    "exposure",
-    "contrast",
-    "saturation",
-    "curves",
-    "warmth",
-    "tone",
-    "colour",
-    "hsl",
-    "gradient_map",
-)
+# There used to be a LUT_SAFE_OPS tuple here, mirrored in web/src/core/ops.ts,
+# described as the authority on which ops can be baked into a lattice. Nothing
+# read either copy, and by the time they were removed the Python tuple listed
+# nine ops and the TypeScript one listed five. The real authority is LookOp's
+# per-op `lut_safe` flag, which each node sets and which .cube export honours -
+# a second, unread answer to the same question could only ever be wrong.
 
 
 def op_exposure(rgb: torch.Tensor, stops: float) -> torch.Tensor:

@@ -16,7 +16,8 @@ import torch
 
 from pw_color import colour
 from pw_color.blend import BLEND_MODES, composite
-from pw_color.glow import apply_glow, gaussian_blur
+from pw_color.blur import gaussian_blur
+from pw_color.glow import apply_glow
 from pw_color.lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from pw_color.look import HSL_BANDS, op_colour, op_gradient_map, op_hsl, op_tone, ramp_from_palette
 from pw_color.ops import build_sample_fn

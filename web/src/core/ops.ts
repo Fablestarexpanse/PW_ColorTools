@@ -28,9 +28,6 @@ export interface LookOp {
   lut_safe?: boolean;
 }
 
-/** Ops that can be baked into a lattice. Anything else is render-only. */
-export const LUT_SAFE_OPS = ['exposure', 'contrast', 'saturation', 'curves', 'warmth'] as const;
-
 /** Exposure in stops, in linear light — the only place stops mean anything. */
 export function opExposure(rgb: Vec3, stops: number): Vec3 {
   const k = Math.pow(2, stops);

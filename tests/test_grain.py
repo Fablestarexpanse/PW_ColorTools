@@ -48,7 +48,7 @@ def test_grain_is_invisible_in_pure_black_and_pure_white():
 
 
 def test_grain_is_strongest_in_the_midtones():
-    tonal = TonalResponse(shadows=0.20, mids=1.00, highlights=0.10)
+    tonal = TonalResponse(shadows=0.20, midtones=1.00, highlights=0.10)
     field = _field()
     energies = {v: _grain_energy(_flat(v), apply_grain(_flat(v), field, tonal, amount=0.2)) for v in (0.05, 0.2, 0.5, 0.85, 0.98)}
     assert energies[0.5] > energies[0.2] > energies[0.05], energies
@@ -408,11 +408,11 @@ def test_tonal_response_matches_the_browser():
 
     harness = Path(__file__).resolve().parents[1] / "web" / "tools" / "tonal.ts"
     ts = torch.linspace(0.0, 1.0, 257)
-    shadows, mids, highlights = 0.2, 1.0, 0.1
+    shadows, midtones, highlights = 0.2, 1.0, 0.1
 
     proc = subprocess.run(
         [node, "--experimental-strip-types", "--no-warnings", str(harness)],
-        input=json.dumps({"t": ts.tolist(), "shadows": shadows, "mids": mids, "highlights": highlights}),
+        input=json.dumps({"t": ts.tolist(), "shadows": shadows, "midtones": midtones, "highlights": highlights}),
         capture_output=True,
         text=True,
         timeout=120,
@@ -428,7 +428,7 @@ def test_tonal_response_matches_the_browser():
     from pw_color.colour import linear_to_srgb
 
     px = linear_to_srgb(lum).view(1, 1, -1, 1).expand(1, 1, ts.numel(), 3).contiguous()
-    py = TonalResponse(shadows, mids, highlights).weight(px).reshape(-1)
+    py = TonalResponse(shadows, midtones, highlights).weight(px).reshape(-1)
 
     err = float((py - js).abs().max().item())
     assert err < 1e-5, f"tonal response differs by {err:.3e} between TS and torch"
