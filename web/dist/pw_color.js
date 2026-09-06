@@ -2169,22 +2169,22 @@ async function loadPresets() {
   }
   return presetCache;
 }
-var PRESET_SLIDERS = {
-  exposure: 0,
-  contrast: 0,
-  highlights: 0,
-  shadows: 0,
-  whites: 0,
-  blacks: 0,
-  warmth: 0,
-  tint: 0,
-  vibrance: 0,
-  saturation: 1,
-  glow: 0,
-  glow_radius: 24,
-  glow_threshold: 0.65,
-  gradient_map: 0
-};
+var PRESET_SLIDERS = [
+  "exposure",
+  "contrast",
+  "highlights",
+  "shadows",
+  "whites",
+  "blacks",
+  "warmth",
+  "tint",
+  "vibrance",
+  "saturation",
+  "glow",
+  "glow_radius",
+  "glow_threshold",
+  "gradient_map"
+];
 function applyPreset(node, preset) {
   const combo = getWidget(node, "preset");
   if (combo) {
@@ -2192,11 +2192,13 @@ function applyPreset(node, preset) {
     combo.callback?.(combo.value);
   }
   if (preset.id !== "none") {
-    for (const [name, neutral] of Object.entries(PRESET_SLIDERS)) {
+    for (const name of PRESET_SLIDERS) {
       const w = getWidget(node, name);
       if (!w) continue;
       const key = name === "gradient_map" ? "gradient_map_amount" : name;
+      const neutral = defaultFor(node, name);
       const next = typeof preset.params[key] === "number" ? preset.params[key] : neutral;
+      if (typeof next !== "number") continue;
       if (w.value !== next) {
         w.value = next;
         w.callback?.(w.value);

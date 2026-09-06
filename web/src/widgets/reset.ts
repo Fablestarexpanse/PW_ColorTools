@@ -36,7 +36,7 @@ const PASS_THROUGH: Record<string, Record<string, number>> = {
 };
 
 /** The default for a widget, straight from the node definition. */
-function defaultFor(node: NodeLike, name: string): unknown {
+export function defaultFor(node: NodeLike, name: string): unknown {
   const defs = (node as any).constructor?.nodeData?.input ?? {};
   for (const section of ['required', 'optional']) {
     const entry = defs[section]?.[name];

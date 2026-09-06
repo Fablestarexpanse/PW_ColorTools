@@ -19,7 +19,7 @@ import { buildSampleFn } from '../core/ops.ts';
 import { HSL_BANDS } from '../core/look_ops.ts';
 import { isComparing, onCompareChange } from '../widgets/compare.ts';
 import { onRunComplete } from '../widgets/run_events.ts';
-import { addResetMenu, resetNode } from '../widgets/reset.ts';
+import { addResetMenu, defaultFor, resetNode } from '../widgets/reset.ts';
 import { fillPanel, headerChip, hit, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
 import { collapseInternalPreview, ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
 import { Segmented } from '../widgets/segmented.ts';
@@ -96,13 +96,21 @@ async function loadPresets(): Promise<Preset[]> {
   return presetCache!;
 }
 
-/** Slider names a preset can set, and the value each returns to when it does not. */
-const PRESET_SLIDERS: Record<string, number> = {
-  exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
-  warmth: 0, tint: 0, vibrance: 0, saturation: 1,
-  glow: 0, glow_radius: 24, glow_threshold: 0.65,
-  gradient_map: 0,
-};
+/**
+ * Slider names a preset is allowed to set.
+ *
+ * Only the names. What each returns to when a preset does not mention it is
+ * that widget's own default, read from the node definition — the same source
+ * `reset` uses. This list used to carry the values too, which made it a third
+ * statement of every default after the Python schema and `execute`, and the one
+ * furthest from them.
+ */
+const PRESET_SLIDERS = [
+  'exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks',
+  'warmth', 'tint', 'vibrance', 'saturation',
+  'glow', 'glow_radius', 'glow_threshold',
+  'gradient_map',
+] as const;
 
 /**
  * Apply a preset by writing its values into the widgets.
@@ -122,11 +130,15 @@ function applyPreset(node: NodeLike, preset: Preset): void {
     combo.callback?.(combo.value);
   }
   if (preset.id !== 'none') {
-    for (const [name, neutral] of Object.entries(PRESET_SLIDERS)) {
+    for (const name of PRESET_SLIDERS) {
       const w = getWidget(node, name);
       if (!w) continue;
+      // The preset spells the gradient map with a prefix, because "amount" on
+      // its own would collide with the master controls.
       const key = name === 'gradient_map' ? 'gradient_map_amount' : name;
+      const neutral = defaultFor(node, name);
       const next = typeof preset.params[key] === 'number' ? preset.params[key] : neutral;
+      if (typeof next !== 'number') continue;
       if (w.value !== next) {
         w.value = next;
         w.callback?.(w.value);

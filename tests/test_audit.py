@@ -414,3 +414,43 @@ def test_no_source_file_contains_a_control_character():
             data = path.read_bytes()
             bad = sorted({b for b in data if b < 32 and b not in allowed})
             assert not bad, f"{path.relative_to(root)} contains control bytes {bad}"
+
+
+def test_execute_signature_defaults_match_the_schema():
+    """Every node states each default twice — once in `define_schema` for the
+    UI, once as a parameter default on `execute` for direct calls.
+
+    That is the ComfyUI V3 pattern and not worth fighting, but the two copies
+    can disagree silently: the node would then behave one way in a graph and
+    another way when called from a test or another node. So they are compared.
+    """
+    import inspect
+
+    import pytest as _pytest
+
+    _pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")
+    from pw_color.nodes import curves, grain, look, look_io, match_source, optics, palette, scopes
+
+    modules = (curves, grain, look, look_io, match_source, optics, palette, scopes)
+    checked = 0
+    for module in modules:
+        for cls in module.NODES:
+            schema = cls.define_schema()
+            schema.finalize()
+            declared = {
+                i.id: i.default
+                for i in schema.inputs
+                if getattr(i, "default", None) is not None
+            }
+            params = inspect.signature(cls.execute).parameters
+            for name, default in declared.items():
+                param = params.get(name)
+                if param is None or param.default is inspect.Parameter.empty:
+                    continue
+                assert param.default == default, (
+                    f"{cls.__name__}.execute has {name}={param.default!r} but its "
+                    f"schema declares {default!r}; the node behaves differently "
+                    f"depending on who calls it"
+                )
+                checked += 1
+    assert checked > 50, f"expected to compare many defaults, only saw {checked}"
