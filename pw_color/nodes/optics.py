@@ -108,7 +108,7 @@ class PW_Optics(io.ComfyNode):
         # Emulsion, then glass, then falloff. Vignetting first would let its
         # darkened corners bleed back out through halation.
         if halation > 0.0:
-            out = apply_halation(out, halation, halation_radius, halation_threshold)
+            out = apply_halation(out, amount=halation, radius=halation_radius, threshold=halation_threshold)
             ops.append(
                 LookOp(
                     type="halation",
@@ -117,10 +117,16 @@ class PW_Optics(io.ComfyNode):
                 )
             )
         if chromatic_aberration != 0.0:
-            out = apply_chromatic_aberration(out, chromatic_aberration)
+            out = apply_chromatic_aberration(out, amount=chromatic_aberration)
             ops.append(LookOp(type="chromatic_aberration", params={"amount": float(chromatic_aberration)}, lut_safe=False))
         if vignette != 0.0:
-            out = apply_vignette(out, vignette, vignette_midpoint, vignette_roundness, vignette_feather)
+            out = apply_vignette(
+                out,
+                amount=vignette,
+                midpoint=vignette_midpoint,
+                roundness=vignette_roundness,
+                feather=vignette_feather,
+            )
             ops.append(
                 LookOp(
                     type="vignette",

@@ -214,9 +214,9 @@ class PW_Look(io.ComfyNode):
         ref_strength = float(reference_strength)
         if reference is not None and ref_strength > 0.0:
             if reference_mode == "least_squares":
-                out = match_least_squares(out, reference, mask=None, strength=ref_strength)
+                out = match_least_squares(out, reference=reference, mask=None, strength=ref_strength)
             else:
-                out = match_mean_std(out, reference, mask=None, strength=ref_strength, space="oklab")
+                out = match_mean_std(out, original=reference, mask=None, strength=ref_strength, space="oklab")
             ops.append(
                 LookOp(
                     type="reference_match",

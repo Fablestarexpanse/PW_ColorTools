@@ -81,6 +81,11 @@ class PW_MatchSource(io.ComfyNode):
                     ),
                     display_mode=io.NumberDisplay.slider,
                 ),
+                io.Custom("LOOK").Input(
+                    "look_in",
+                    optional=True,
+                    tooltip="Upstream grade stack. This node appends to it.",
+                ),
             ],
             outputs=[
                 io.Image.Output(display_name="image"),
@@ -97,6 +102,7 @@ class PW_MatchSource(io.ComfyNode):
         strength: float = 1.0,
         space: str = "oklab",
         max_gain: float = 4.0,
+        look_in: dict | None = None,
     ) -> io.NodeOutput:
         if mask is not None and mask.ndim == 2:
             mask = mask.unsqueeze(0)
@@ -116,19 +122,18 @@ class PW_MatchSource(io.ComfyNode):
             max_gain=max_gain,
         )
 
-        look = Look(
-            name="match source",
-            ops=[
-                LookOp(
-                    type="match_source",
-                    params={"space": space, "max_gain": float(max_gain), "masked": mask is not None},
-                    strength=float(strength),
-                    # Image-dependent, so there is no fixed transform to bake.
-                    lut_safe=False,
-                )
-            ],
+        op = LookOp(
+            type="match_source",
+            params={"space": space, "max_gain": float(max_gain), "masked": mask is not None},
+            strength=float(strength),
+            # Image-dependent, so there is no fixed transform to bake.
+            lut_safe=False,
         )
-        return io.NodeOutput(out, look.to_dict())
+        # Appends rather than starting fresh. This node emits a LOOK, so without
+        # a look_in it was the one LOOK-emitting node that could not sit mid
+        # chain: putting it after a grade silently dropped everything upstream.
+        look = Look.from_dict(look_in) if look_in else Look(name="match source")
+        return io.NodeOutput(out, look.appended(op).to_dict())
 
 
 NODES = [PW_MatchSource]

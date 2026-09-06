@@ -57,8 +57,14 @@ def _load_plate(name: str) -> torch.Tensor:
     path = PLATES_DIR / name
     if not path.is_file():
         raise ValueError(f"PW Grain: grain plate {name!r} not found in {PLATES_DIR}")
-    with Image.open(path) as im:
-        arr = np.asarray(im.convert("RGB"), dtype=np.float32) / 255.0
+    try:
+        with Image.open(path) as im:
+            arr = np.asarray(im.convert("RGB"), dtype=np.float32) / 255.0
+    except OSError as exc:
+        # Pillow raises OSError for a truncated or unrecognised image. Every
+        # other failure this node can produce is a ValueError with its name on
+        # it, and a bare OSError in the ComfyUI log says nothing about grain.
+        raise ValueError(f"PW Grain: could not read grain plate {name!r} ({exc})") from exc
     return torch.from_numpy(arr).unsqueeze(0)
 
 
@@ -212,11 +218,16 @@ class PW_Grain(io.ComfyNode):
             # Built here rather than above: a full-resolution noise field is the
             # expensive part of this node, and at amount 0 nothing consumes it.
             if plate_image is not None:
-                field = plate_field(plate_image, b, h, w, seed, vary_per_frame)
+                field = plate_field(plate_image, batch=b, height=h, width=w, seed=seed, vary_per_frame=vary_per_frame)
             elif source != "procedural":
-                field = plate_field(_load_plate(plate), b, h, w, seed, vary_per_frame)
+                field = plate_field(
+                    _load_plate(plate), batch=b, height=h, width=w, seed=seed, vary_per_frame=vary_per_frame
+                )
             else:
-                field = procedural_field(b, h, w, size, seed, vary_per_frame, device=image.device, chroma=chroma)
+                field = procedural_field(
+                    batch=b, height=h, width=w, size=size, seed=seed,
+                    vary_per_frame=vary_per_frame, device=image.device, chroma=chroma,
+                )
             out = apply_grain(
                 out,
                 field,

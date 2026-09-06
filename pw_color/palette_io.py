@@ -198,16 +198,32 @@ def _from_txt(data: bytes) -> Palette:
     return _swatches_from_hex([f"#{h.upper()}" for h in hexes], lossy=True)
 
 
+#: What a parser raises when the bytes are not what it expected.
+#:
+#: The readers signal "this file is not readable" with ValueError, but three of
+#: them parse binary or text by hand and can fail before they get that far — a
+#: truncated ASE runs off the end of a struct.unpack, a malformed JSON palette
+#: comes back as a list where a dict was expected. Those reached the user as
+#: a raw struct.error, KeyError or AttributeError, none of which says which
+#: file was bad — or is what a caller guarding a load would think to catch.
+_PARSE_FAILURES = (struct.error, IndexError, KeyError, TypeError, AttributeError, UnicodeDecodeError)
+
+
 def from_bytes(data: bytes, fmt: str) -> Palette:
-    if fmt == "json":
-        return Palette.from_json(data.decode("utf-8"))
-    if fmt == "ase":
-        return _from_ase(data)
-    if fmt == "gpl":
-        return _from_gpl(data)
-    if fmt == "txt":
-        return _from_txt(data)
-    raise ValueError(f"unknown palette format {fmt!r}")
+    """Parse palette bytes. Every unreadable-file failure is a ValueError."""
+    readers = {
+        "json": lambda: Palette.from_json(data.decode("utf-8")),
+        "ase": lambda: _from_ase(data),
+        "gpl": lambda: _from_gpl(data),
+        "txt": lambda: _from_txt(data),
+    }
+    reader = readers.get(fmt)
+    if reader is None:
+        raise ValueError(f"unknown palette format {fmt!r}")
+    try:
+        return reader()
+    except _PARSE_FAILURES as exc:
+        raise ValueError(f"could not read this as a .{fmt} palette: {exc}") from exc
 
 
 def load_palette(filename: str) -> Palette:

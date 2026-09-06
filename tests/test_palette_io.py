@@ -205,3 +205,26 @@ def test_unsafe_characters_are_replaced():
 
 def test_spaces_and_dashes_survive():
     assert safe_name("warm sunset-02", "ase") == "warm sunset-02.ase"
+
+
+@pytest.mark.parametrize(
+    "fmt,data",
+    [
+        ("ase", b"ASEF"),                       # header only: unpack runs off the end
+        ("ase", b"ASEF\x00\x01\x00\x00\xff\xff\xff\xff"),  # claims 4B blocks
+        ("json", b'{"colors": [{"hex": 5}]}'),  # right shape, wrong types
+        ("json", b"[]"),                        # valid JSON, not a palette
+        ("gpl", b"\xff\xfe\x00\x00"),           # not text at all
+        ("txt", b"\xff\xfe\x00\x00"),
+    ],
+)
+def test_corrupt_files_all_fail_the_same_way(fmt: str, data: bytes):
+    """Every reader signals "not readable" with ValueError.
+
+    Three of them parse binary or text by hand, so a truncated file used to
+    escape as struct.error, IndexError or KeyError — exceptions that say
+    nothing about which file was bad, and that a caller catching ValueError
+    would not catch at all.
+    """
+    with pytest.raises(ValueError):
+        from_bytes(data, fmt)

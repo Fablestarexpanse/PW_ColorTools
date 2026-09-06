@@ -372,3 +372,27 @@ def test_readme_images_all_exist():
         if ref.startswith("http"):
             continue
         assert (root / ref).is_file(), f"README references missing file {ref}"
+
+
+def test_every_look_emitting_node_can_also_receive_one():
+    """The LOOK wire is what makes the pack a chain rather than five nodes.
+
+    A node that emits a LOOK but cannot accept one truncates the stack the
+    moment someone puts it mid-chain, silently — the image still flows, so
+    nothing looks wrong until a .cube export is missing half the grade. This
+    caught PW_MatchSource, which was the only one.
+    """
+    import re
+    from pathlib import Path
+
+    pkg = Path(__file__).resolve().parents[1] / "pw_color" / "nodes"
+    for path in sorted(pkg.glob("*.py")):
+        src = path.read_text(encoding="utf-8")
+        if 'io.Custom("LOOK").Output' not in src:
+            continue
+        assert 'io.Custom("LOOK").Input' in src, (
+            f"{path.name} emits a LOOK but cannot receive one, so it truncates "
+            f"any grade stack upstream of it"
+        )
+        name = re.search(r'io\.Custom\("LOOK"\)\.Input\(\s*"(\w+)"', src)
+        assert name, f"{path.name}: could not read the LOOK input's name"
