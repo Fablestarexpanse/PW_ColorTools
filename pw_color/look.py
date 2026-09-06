@@ -27,6 +27,7 @@ from typing import Any
 import torch
 
 from . import colour
+from .blend import blend_pixels
 
 __all__ = [
     "HSL_BANDS",
@@ -255,21 +256,9 @@ def op_gradient_map(rgb: torch.Tensor, p: dict[str, Any]) -> torch.Tensor:
     mapped = torch.lerp(c0, c1, t)
 
     mode = p.get("blend", "normal")
-    if mode == "normal":
-        blended = mapped
-    elif mode == "soft light":
-        d = torch.where(rgb <= 0.25, ((16.0 * rgb - 12.0) * rgb + 4.0) * rgb, rgb.clamp(min=0.0).sqrt())
-        blended = torch.where(
-            mapped <= 0.5,
-            rgb - (1.0 - 2.0 * mapped) * rgb * (1.0 - rgb),
-            rgb + (2.0 * mapped - 1.0) * (d - rgb),
-        )
-    elif mode == "overlay":
-        blended = torch.where(rgb <= 0.5, 2.0 * rgb * mapped, 1.0 - 2.0 * (1.0 - rgb) * (1.0 - mapped))
-    elif mode == "multiply":
-        blended = rgb * mapped
-    elif mode == "screen":
-        blended = 1.0 - (1.0 - rgb) * (1.0 - mapped)
+    if mode in ("normal", "multiply", "screen", "overlay", "soft light"):
+        # Unclamped: the lerp by `amount` below is what decides the result.
+        blended = blend_pixels(rgb, mapped, mode)
     elif mode == "colour":
         # Keep the image's lightness, take the ramp's hue and chroma. This is
         # what most people actually want from a gradient map and what makes it

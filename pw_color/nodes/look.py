@@ -25,6 +25,7 @@ import torch
 from comfy_api.latest import io
 
 from ..blend import BLEND_MODES, composite
+from ..colour import with_alpha_of
 from ..glow import apply_glow
 from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from ..look import HSL_BANDS, ramp_from_palette
@@ -305,9 +306,7 @@ class PW_Look(io.ComfyNode):
             graded = torch.lerp(out[..., :3], graded[..., :3], m)
 
         # -- 5. master strength and blend ------------------------------------
-        result = composite(out[..., :3], graded[..., :3], blend, float(strength))
-        if image.shape[-1] == 4:
-            result = torch.cat((result, image[..., 3:]), dim=-1)
+        result = with_alpha_of(composite(out[..., :3], graded[..., :3], blend, float(strength)), image)
 
         look = Look.from_dict(look_in) if look_in else Look()
         for op in ops:

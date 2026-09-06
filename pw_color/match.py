@@ -19,6 +19,7 @@ from __future__ import annotations
 import torch
 
 from . import colour
+from .colour import with_alpha_of
 
 __all__ = ["MatchStats", "channel_stats", "match_mean_std", "match_least_squares", "MATCH_SPACES", "MATCH_TIERS"]
 
@@ -165,9 +166,7 @@ def match_mean_std(
         out = torch.lerp(proc_rgb, out, s)
     out = out.clamp(0.0, 1.0)
 
-    if processed.shape[-1] == 4:
-        return torch.cat((out, processed[..., 3:]), dim=-1)
-    return out
+    return with_alpha_of(out, processed)
 
 
 def _sorted_quantiles(values: torch.Tensor, weights: torch.Tensor, n: int) -> torch.Tensor:
@@ -315,6 +314,4 @@ def match_least_squares(
         out = torch.lerp(proc_rgb.to(torch.float32), out, s)
     out = out.clamp(0.0, 1.0).to(dtype)
 
-    if processed.shape[-1] == 4:
-        return torch.cat((out, processed[..., 3:]), dim=-1)
-    return out
+    return with_alpha_of(out, processed)

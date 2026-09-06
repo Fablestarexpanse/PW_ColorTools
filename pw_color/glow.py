@@ -16,7 +16,7 @@ from __future__ import annotations
 import torch
 
 from .blur import gaussian_blur, sigma_for_size
-from .colour import luma_bt709, srgb_to_linear, linear_to_srgb
+from .colour import linear_to_srgb, luma_bt709, srgb_to_linear, with_alpha_of
 
 __all__ = ["apply_glow", "gaussian_blur"]
 
@@ -65,6 +65,4 @@ def apply_glow(
         blurred = blurred * tintv
 
     out = linear_to_srgb(lin + blurred * float(amount)).clamp(0.0, 1.0)
-    if image.shape[-1] == 4:
-        return torch.cat((out, image[..., 3:]), dim=-1)
-    return out
+    return with_alpha_of(out, image)

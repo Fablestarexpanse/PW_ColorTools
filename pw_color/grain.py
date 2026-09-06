@@ -29,8 +29,9 @@ from __future__ import annotations
 
 import torch
 
+from .blend import blend_pixels
 from .blur import gaussian_blur, sigma_for_size
-from .colour import luma_bt709, srgb_to_linear
+from .colour import luma_bt709, srgb_to_linear, with_alpha_of
 
 __all__ = [
     "GRAIN_BLEND_MODES",
@@ -253,23 +254,13 @@ def _blend(base: torch.Tensor, signed: torch.Tensor, mode: str) -> torch.Tensor:
 
     if mode == "screen":
         # Black-based layer: screen(base, 0) == base.
-        layer = signed.clamp(min=0.0, max=1.0)
-        return 1.0 - (1.0 - base) * (1.0 - layer)
+        return blend_pixels(base, signed.clamp(min=0.0, max=1.0), "screen")
 
-    # Grey-based layer for the contrast modes.
-    layer = (0.5 + signed * 0.5).clamp(0.0, 1.0)
-    if mode == "overlay":
-        return torch.where(base <= 0.5, 2.0 * base * layer, 1.0 - 2.0 * (1.0 - base) * (1.0 - layer))
-    if mode == "soft light":
-        # W3C / Photoshop soft light. The piecewise d() is what keeps the
-        # midtone slope continuous; the naive 2*b*l formula kinks at 0.5.
-        d = torch.where(base <= 0.25, ((16.0 * base - 12.0) * base + 4.0) * base, base.clamp(min=0.0).sqrt())
-        return torch.where(
-            layer <= 0.5,
-            base - (1.0 - 2.0 * layer) * base * (1.0 - base),
-            base + (2.0 * layer - 1.0) * (d - base),
-        )
-    raise ValueError(f"unknown grain blend mode {mode!r}")
+    if mode not in ("overlay", "soft light"):
+        raise ValueError(f"unknown grain blend mode {mode!r}")
+    # Grey-based layer for the contrast modes. The formulas themselves live in
+    # blend.py; what is specific to grain is the neutral each mode needs.
+    return blend_pixels(base, (0.5 + signed * 0.5).clamp(0.0, 1.0), mode)
 
 
 def apply_grain(
@@ -303,9 +294,7 @@ def apply_grain(
         out = torch.lerp(rgb, out, float(opacity))
     out = out.clamp(0.0, 1.0)
 
-    if image.shape[-1] == 4:
-        return torch.cat((out, image[..., 3:]), dim=-1)
-    return out
+    return with_alpha_of(out, image)
 
 
 def dither(image: torch.Tensor, seed: int, levels: int = 255, strength: float = 1.0) -> torch.Tensor:
@@ -329,6 +318,4 @@ def dither(image: torch.Tensor, seed: int, levels: int = 255, strength: float = 
     b = torch.rand(shape, generator=g, dtype=torch.float32)
     tpdf = (a - b).to(rgb.device) * (float(strength) / float(levels))
     out = (rgb + tpdf).clamp(0.0, 1.0)
-    if image.shape[-1] == 4:
-        return torch.cat((out, image[..., 3:]), dim=-1)
-    return out
+    return with_alpha_of(out, image)

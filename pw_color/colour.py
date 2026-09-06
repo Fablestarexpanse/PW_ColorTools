@@ -33,7 +33,21 @@ __all__ = [
     "luma_bt709",
     "hex_to_srgb",
     "srgb_to_hex",
+    "with_alpha_of",
 ]
+
+def with_alpha_of(rgb: torch.Tensor, original: torch.Tensor) -> torch.Tensor:
+    """Reattach ``original``'s alpha to a processed RGB tensor.
+
+    Every operation in the pack takes RGB and hands back RGB, and every one of
+    them ended with the same three lines putting the alpha back. Ten copies of a
+    conditional is ten chances for one of them to be forgotten — and a dropped
+    alpha channel is invisible until someone composites the result.
+    """
+    if original.shape[-1] == 4:
+        return torch.cat((rgb, original[..., 3:]), dim=-1)
+    return rgb
+
 
 # ---------------------------------------------------------------------------
 # sRGB transfer function

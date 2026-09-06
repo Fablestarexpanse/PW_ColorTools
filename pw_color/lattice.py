@@ -25,6 +25,8 @@ from typing import Callable, Literal
 
 import torch
 
+from .colour import with_alpha_of
+
 __all__ = ["Lattice", "DEFAULT_SIZE", "FINAL_SIZE"]
 
 DEFAULT_SIZE = 33
@@ -219,10 +221,8 @@ class Lattice:
         precision back rather than a silently doubled tensor.
         """
         dtype = image.dtype
-        if image.shape[-1] == 4:
-            rgb = self.apply_points(image[..., :3]).clamp(0.0, 1.0).to(dtype)
-            return torch.cat((rgb, image[..., 3:]), dim=-1)
-        return self.apply_points(image).clamp(0.0, 1.0).to(dtype)
+        rgb = self.apply_points(image[..., :3]).clamp(0.0, 1.0).to(dtype)
+        return with_alpha_of(rgb, image)
 
     # -- transport ----------------------------------------------------------
 

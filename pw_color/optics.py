@@ -16,7 +16,7 @@ from __future__ import annotations
 import torch
 
 from .blur import gaussian_blur, sigma_for_size
-from .colour import linear_to_srgb, luma_bt709, srgb_to_linear
+from .colour import linear_to_srgb, luma_bt709, srgb_to_linear, with_alpha_of
 
 __all__ = ["apply_halation", "apply_vignette", "apply_chromatic_aberration", "gaussian_blur"]
 
@@ -59,9 +59,7 @@ def apply_halation(
     tintv = torch.tensor(tint, dtype=blurred.dtype, device=blurred.device)
 
     out = linear_to_srgb(lin + blurred * tintv * float(amount)).clamp(0.0, 1.0)
-    if image.shape[-1] == 4:
-        return torch.cat((out, image[..., 3:]), dim=-1)
-    return out
+    return with_alpha_of(out, image)
 
 
 def apply_vignette(
@@ -110,9 +108,7 @@ def apply_vignette(
 
     lin = srgb_to_linear(rgb.clamp(0.0, 1.0))
     out = linear_to_srgb(lin * (2.0 ** (-float(amount) * 2.0 * mask))).clamp(0.0, 1.0)
-    if image.shape[-1] == 4:
-        return torch.cat((out, image[..., 3:]), dim=-1)
-    return out
+    return with_alpha_of(out, image)
 
 
 def apply_chromatic_aberration(image: torch.Tensor, amount: float = 0.3) -> torch.Tensor:
@@ -150,6 +146,4 @@ def apply_chromatic_aberration(image: torch.Tensor, amount: float = 0.3) -> torc
         out_channels.append(sampled)
     out = torch.cat(out_channels, dim=1).permute(0, 2, 3, 1).clamp(0.0, 1.0)
 
-    if image.shape[-1] == 4:
-        return torch.cat((out, image[..., 3:]), dim=-1)
-    return out
+    return with_alpha_of(out, image)
