@@ -43,6 +43,20 @@ __all__ = [
 
 _log = logging.getLogger("PW_Color")
 
+# On who can read these caches.
+#
+# Entries are keyed by graph-local node id and nothing else, so any client that
+# can reach the ComfyUI server can GET /pw_color/input/5. That is worth stating
+# rather than leaving to be discovered.
+#
+# It is deliberate, and it matches the platform: ComfyUI's own /view serves any
+# file under output/ and /history returns every prompt that has run, to any
+# client the deployment lets through. Authentication is the deployment's job,
+# and the cache holds only downscaled proxies of images the same client can
+# already fetch through those endpoints. Scoping by session would be a stronger
+# guarantee than the surrounding server offers and would break the case these
+# caches exist for - the browser reading a preview for a node it did not run.
+
 #: Set once `register_routes` has attached the handlers; see its docstring.
 _routes_registered = False
 

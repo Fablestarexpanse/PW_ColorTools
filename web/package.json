@@ -8,7 +8,8 @@
     "build": "esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=dist/pw_color.js --external:/scripts/* --external:/extensions/*",
     "watch": "npm run build -- --watch --sourcemap",
     "typecheck": "tsc --noEmit",
-    "parity": "node --experimental-strip-types --no-warnings tools/parity.ts"
+    "parity": "node --experimental-strip-types --no-warnings tools/parity.ts",
+    "test": "node --experimental-strip-types --no-warnings --test \"test/*.test.ts\""
   },
   "engines": {
     "node": ">=22.6"
