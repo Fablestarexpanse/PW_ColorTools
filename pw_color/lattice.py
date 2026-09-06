@@ -326,6 +326,10 @@ class Lattice:
                 try:
                     rows.append((float(head), float(rest[0]), float(rest[1])))
                 except (ValueError, IndexError):
+                    # Not a data row. .cube is a text format whose files in
+                    # the wild carry vendor keys we do not recognise. This
+                    # is not swallowing an error: if too few rows parse, the
+                    # size check below fails with the count it actually got.
                     continue
         if size is None:
             raise ValueError("no LUT_3D_SIZE in .cube file")

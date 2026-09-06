@@ -16,8 +16,7 @@ from __future__ import annotations
 import torch
 
 from .bloom import bright_pass_bloom
-from .blur import gaussian_blur, sigma_for_size
-from .colour import linear_to_srgb, luma_bt709, srgb_to_linear, with_alpha_of
+from .colour import linear_to_srgb, srgb_to_linear, with_alpha_of
 
 __all__ = ["apply_halation", "apply_vignette", "apply_chromatic_aberration"]
 

@@ -17,7 +17,6 @@ to look for.
 
 from __future__ import annotations
 
-import inspect
 
 import pytest
 import torch
@@ -316,7 +315,6 @@ def test_version_is_consistent_across_metadata():
 
 
 def test_every_node_module_exports_nodes():
-    import importlib
     import pkgutil
     from pathlib import Path
 

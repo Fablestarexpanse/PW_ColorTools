@@ -11,7 +11,6 @@ Skipped when ComfyUI is not importable, which is the case in a bare checkout.
 
 from __future__ import annotations
 
-import itertools
 
 import pytest
 import torch

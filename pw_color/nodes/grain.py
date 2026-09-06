@@ -9,7 +9,6 @@ tell the user a ``.cube`` export will not include it.
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 
 import torch
 from comfy_api.latest import io

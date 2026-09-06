@@ -175,6 +175,10 @@ def _from_gpl(data: bytes) -> Palette:
             try:
                 r, g, b = (int(parts[i]) for i in range(3))
             except ValueError:
+                # A .gpl line that is not three integers is a name or a
+                # comment, which every real palette has plenty of. Logging
+                # each would drown the log; a file with no colours at all
+                # raises below, which is the failure worth reporting.
                 continue
             hexes.append(srgb_to_hex((r / 255.0, g / 255.0, b / 255.0)))
     if not hexes:

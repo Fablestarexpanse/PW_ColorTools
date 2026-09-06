@@ -14,7 +14,6 @@ the user discovering a "reset" node that still tints their image.
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 

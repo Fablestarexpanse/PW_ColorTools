@@ -70,7 +70,6 @@ def _kmeanspp_init(pts: torch.Tensor, weights: torch.Tensor, k: int, generator: 
     different answer every run; k-means++ also converges in far fewer iterations
     because it starts spread out.
     """
-    n = pts.shape[0]
     first = int(torch.multinomial(weights, 1, generator=generator).item())
     centres = [pts[first]]
     d2 = ((pts - centres[0]) ** 2).sum(dim=1)
