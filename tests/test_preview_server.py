@@ -205,3 +205,31 @@ def test_bad_output_is_ignored_rather_than_raising():
     ps.store_output("n", None)  # type: ignore[arg-type]
     ps.store_output("n", torch.rand(32, 32, 3))
     assert ps.get_output("n") is None
+
+
+def test_register_routes_is_idempotent(monkeypatch):
+    """ComfyUI can import an extension twice — a Manager reload, a second
+    entrypoint — and aiohttp accepts duplicate routes without complaint, so a
+    second registration would silently leave two handlers on every path."""
+    registered: list[str] = []
+
+    class _Routes:
+        def get(self, path):
+            registered.append(path)
+            return lambda fn: fn
+
+    class _Server:
+        instance = type("I", (), {"routes": _Routes()})()
+
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "server", types.SimpleNamespace(PromptServer=_Server))
+    monkeypatch.setattr(ps, "_routes_registered", False)
+
+    assert ps.register_routes() is True
+    first = len(registered)
+    assert first, "expected routes to be registered"
+
+    assert ps.register_routes() is True
+    assert len(registered) == first, "a second call registered the routes again"

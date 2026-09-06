@@ -202,7 +202,8 @@ def plate_field(
     ph, pw = plate.shape[1], plate.shape[2]
     fields = []
     for b in range(batch):
-        src = plate[min(b, plate.shape[0] - 1) if plate.shape[0] > 1 else 0, ..., :3]
+        # A short plate batch holds on its last frame rather than wrapping.
+        src = plate[min(b, plate.shape[0] - 1), ..., :3]
 
         # Mean-centre first: the plate's own exposure must not reach the image.
         dev = src - src.mean()

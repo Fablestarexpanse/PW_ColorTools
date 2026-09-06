@@ -43,6 +43,9 @@ __all__ = [
 
 _log = logging.getLogger("PW_Color")
 
+#: Set once `register_routes` has attached the handlers; see its docstring.
+_routes_registered = False
+
 #: Long side of the cached proxy. Big enough to judge a grade on a node panel,
 #: small enough that caching a dozen costs a few megabytes.
 PROXY_LONG_EDGE = 512
@@ -290,7 +293,17 @@ def register_routes() -> bool:
     histogram in the editor", not to "the pack failed to load". ComfyUI catches
     exceptions out of ``comfy_entrypoint`` and skips the *entire* extension, so
     an unguarded failure here costs every node in the pack.
+
+    Idempotent. ComfyUI can import an extension more than once — a reload from
+    the Manager, a second entrypoint — and aiohttp happily accepts a duplicate
+    route, so a second call used to leave two handlers registered for every
+    path with no error and no way to tell.
     """
+    global _routes_registered
+    if _routes_registered:
+        _log.debug("PW Color: preview routes already registered")
+        return True
+
     try:
         from aiohttp import web
         from server import PromptServer
@@ -347,4 +360,5 @@ def register_routes() -> bool:
             _log.exception("PW Color: could not read %s", LOOK_PRESETS)
             return web.json_response({"presets": []})
 
+    _routes_registered = True
     return True

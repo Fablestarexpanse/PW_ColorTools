@@ -432,3 +432,33 @@ def test_tonal_response_matches_the_browser():
 
     err = float((py - js).abs().max().item())
     assert err < 1e-5, f"tonal response differs by {err:.3e} between TS and torch"
+
+
+# -- the plate name reaches the filesystem -----------------------------------
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["../../etc/passwd", r"..\..\windows\x", "/abs/path.png", r"C:\evil.png", "nope.png"],
+)
+def test_plate_name_must_be_one_the_node_offers(name: str):
+    """`plate` is a combo, but a combo value is whatever the saved workflow JSON
+    says. It is joined onto a directory, so it is checked rather than trusted —
+    the same policy look_io and palette_io apply to their filenames."""
+    comfy_io = pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")  # noqa: F841
+    from pw_color.nodes.grain import _load_plate
+
+    with pytest.raises(ValueError, match="not a shipped grain plate"):
+        _load_plate(name)
+
+
+def test_shipped_plates_still_load():
+    """The guard must not reject the plates the node actually offers."""
+    comfy_io = pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")  # noqa: F841
+    from pw_color.nodes.grain import _load_plate, plate_names
+
+    shipped = [n for n in plate_names() if n != "none"]
+    if not shipped:
+        pytest.skip("no grain plates shipped")
+    for name in shipped:
+        assert _load_plate(name).ndim == 4

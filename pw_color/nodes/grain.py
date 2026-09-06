@@ -39,7 +39,15 @@ def plate_names() -> tuple[str, ...]:
 
 
 def _load_plate(name: str) -> torch.Tensor:
-    """Load a plate from disk as ``[1,H,W,3]`` in sRGB-encoded [0,1]."""
+    """Load a shipped plate as ``[1,H,W,3]`` in sRGB-encoded [0,1].
+
+    ``name`` is checked against the list the combo offers rather than joined
+    onto PLATES_DIR as given. It arrives from a widget, and a widget value comes
+    back from whatever is in the saved workflow JSON — the sibling loaders in
+    look_io and palette_io both sanitise for the same reason.
+    """
+    if name not in plate_names():
+        raise ValueError(f"PW Grain: {name!r} is not a shipped grain plate")
     # Pillow and numpy are ComfyUI runtime dependencies rather than ours, and
     # only the rendering paths need them. Deferred so importing the pack stays
     # cheap and a colour-only use never touches them.
@@ -192,18 +200,23 @@ class PW_Grain(io.ComfyNode):
         b, h, w = image.shape[0], image.shape[1], image.shape[2]
         tonal = TonalResponse(shadows, midtones, highlights)
 
-        source = "procedural"
         if plate_image is not None:
-            field = plate_field(plate_image, b, h, w, seed, vary_per_frame)
             source = "plate_image"
         elif plate and plate != "none":
-            field = plate_field(_load_plate(plate), b, h, w, seed, vary_per_frame)
             source = plate
         else:
-            field = procedural_field(b, h, w, size, seed, vary_per_frame, device=image.device, chroma=chroma)
+            source = "procedural"
 
         out = image
         if amount > 0.0 and opacity > 0.0:
+            # Built here rather than above: a full-resolution noise field is the
+            # expensive part of this node, and at amount 0 nothing consumes it.
+            if plate_image is not None:
+                field = plate_field(plate_image, b, h, w, seed, vary_per_frame)
+            elif source != "procedural":
+                field = plate_field(_load_plate(plate), b, h, w, seed, vary_per_frame)
+            else:
+                field = procedural_field(b, h, w, size, seed, vary_per_frame, device=image.device, chroma=chroma)
             out = apply_grain(
                 out,
                 field,
