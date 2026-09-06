@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 __all__ = ["NONE", "load_presets", "preset_ids", "preset_name", "resolve_preset"]
 
@@ -33,8 +34,24 @@ log = logging.getLogger(__name__)
 #: The "leave it alone" entry every preset combo carries as its first option.
 NONE = "none"
 
-_cache: dict[Path, dict[str, dict]] = {}
-_warned: set[Path] = set()
+class _PresetCache:
+    """Successful reads, and the files already complained about.
+
+    A class rather than two module-level dicts so the two pieces of state that
+    have to agree - a path is cached *or* it is known-bad, never both - live in
+    one place with the rule between them.
+    """
+
+    def __init__(self) -> None:
+        self.good: dict[Path, dict[str, dict[str, Any]]] = {}
+        self.warned: set[Path] = set()
+
+    def clear(self) -> None:
+        self.good.clear()
+        self.warned.clear()
+
+
+_presets = _PresetCache()
 
 
 def _read(path: Path) -> dict[str, dict]:
@@ -47,8 +64,8 @@ def _read(path: Path) -> dict[str, dict]:
         data = json.loads(path.read_text(encoding="utf-8"))
         entries = list(data["presets"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        if path not in _warned:
-            _warned.add(path)
+        if path not in _presets.warned:
+            _presets.warned.add(path)
             log.warning("PW Color: could not read presets from %s (%s); continuing with none only", path, exc)
         return {NONE: {"id": NONE, "name": "None", "params": {}}}
 
@@ -61,14 +78,14 @@ def _read(path: Path) -> dict[str, dict]:
 
 def load_presets(path: Path) -> dict[str, dict]:
     """Presets from ``path``, read once per successful load."""
-    cached = _cache.get(path)
+    cached = _presets.good.get(path)
     if cached is not None:
         return cached
     presets = _read(path)
-    # Only a real read earns a cache entry; a failure should recover if the
-    # user fixes the file and reloads the node pack.
-    if path not in _warned:
-        _cache[path] = presets
+    # Only a real read earns a cache entry; a failure should recover once the
+    # user fixes the file, without needing a restart.
+    if path not in _presets.warned:
+        _presets.good[path] = presets
     return presets
 
 
@@ -77,7 +94,7 @@ def preset_ids(path: Path) -> list[str]:
     return list(load_presets(path))
 
 
-def resolve_preset(path: Path, preset: str, node: str) -> dict:
+def resolve_preset(path: Path, preset: str, node: str) -> dict[str, Any]:
     """The parameters for ``preset``, or ``{}`` for 'none'.
 
     Raises on an id that is not in the file, because the alternative is a node

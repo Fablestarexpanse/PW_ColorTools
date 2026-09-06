@@ -39,11 +39,9 @@ def test_every_shipped_asset_location_exists():
 
 @pytest.fixture(autouse=True)
 def _clear_preset_cache():
-    P._cache.clear()
-    P._warned.clear()
+    P._presets.clear()
     yield
-    P._cache.clear()
-    P._warned.clear()
+    P._presets.clear()
 
 
 @pytest.mark.parametrize("path", [LOOK_PRESETS, CURVE_PRESETS])

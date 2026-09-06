@@ -38,6 +38,10 @@ __all__ = ["SORT_MODES", "SortMode", "extract_palette", "kmeans_oklab", "CLUSTER
 #: even at 4K. Larger does not change the answer; it only costs time.
 CLUSTER_LONG_EDGE = 200
 
+#: Pixels sampled for the content hash. Enough to separate two real images,
+#: few enough that hashing costs nothing on every execution.
+HASH_SAMPLES = 4096
+
 SortMode = Literal["coverage", "lightness", "hue"]
 SORT_MODES: tuple[str, ...] = get_args(SortMode)
 
@@ -264,8 +268,8 @@ def _cheap_image_hash(img: torch.Tensor) -> str:
     missed, which is a cosmetic failure, not a correctness one.
     """
     flat = img.reshape(-1)
-    stride = max(1, flat.numel() // 4096)
-    sample = flat[::stride][:4096]
+    stride = max(1, flat.numel() // HASH_SAMPLES)
+    sample = flat[::stride][:HASH_SAMPLES]
     h = hashlib.sha256()
     h.update(str(tuple(img.shape)).encode())
     h.update(f"{float(flat.sum().item()):.6f}".encode())

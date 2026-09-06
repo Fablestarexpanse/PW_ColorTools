@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from typing import Callable, Literal
+from typing import Any, Callable, Literal
 
 import torch
 
@@ -53,6 +53,9 @@ OUT_MIN = -0.5
 OUT_MAX = 2.0
 
 Encoding = Literal["u16", "f32"]
+
+#: Largest value a u16 code can hold; the divisor of the transport quantiser.
+U16_MAX = 65535
 
 # A callable that maps [M,3] sRGB-encoded sample points to [M,3] output values.
 SampleFn = Callable[[torch.Tensor], torch.Tensor]
@@ -226,7 +229,7 @@ class Lattice:
 
     # -- transport ----------------------------------------------------------
 
-    def to_transport(self, encoding: Encoding = "u16") -> dict:
+    def to_transport(self, encoding: Encoding = "u16") -> dict[str, Any]:
         """Serialize for the workflow JSON / HTTP route.
 
         ``u16`` is the default: 1/65535 quantization is two orders of magnitude
@@ -239,7 +242,7 @@ class Lattice:
         if encoding == "u16":
             norm = ((flat - OUT_MIN) / (OUT_MAX - OUT_MIN)).clamp(0.0, 1.0)
             # via numpy: torch.uint16 exists but has no stable .numpy() path.
-            q = (norm * 65535.0 + 0.5).to(torch.int32).clamp(0, 65535)
+            q = (norm * float(U16_MAX) + 0.5).to(torch.int32).clamp(0, U16_MAX)
             raw = q.numpy().astype("<u2").tobytes()
         elif encoding == "f32":
             raw = flat.contiguous().numpy().astype("<f4").tobytes()
@@ -255,7 +258,7 @@ class Lattice:
         }
 
     @classmethod
-    def from_transport(cls, obj: dict) -> "Lattice":
+    def from_transport(cls, obj: dict[str, Any]) -> "Lattice":
         # numpy is a ComfyUI runtime dependency rather than one of ours, and
         # only this transport path needs it. Deferred so importing the pack
         # stays cheap for a colour-only use that never decodes a lattice.
