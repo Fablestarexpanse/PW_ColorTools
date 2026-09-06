@@ -9,7 +9,7 @@
  * outright breaks subgraph header buttons on frontend 1.4x.
  */
 
-import { app, chainHandler, getWidget, type NodeLike } from '../comfy.ts';
+import { type NodeLike, app, chainHandler, fetchPw, getWidget } from '../comfy.ts';
 import { PW } from '../theme.ts';
 import { CurveEditor, identityState, type ChannelId, type CurveEditorState } from '../canvas/curve_editor.ts';
 import { Preview } from '../canvas/preview.ts';
@@ -87,7 +87,7 @@ function writeState(node: NodeLike, ui: CurvesUI): void {
  */
 async function loadHistogram(node: NodeLike, ui: CurvesUI): Promise<void> {
   try {
-    const res = await fetch(`/pw_color/histogram/${node.id}`);
+    const res = await fetchPw(`/pw_color/histogram/${node.id}`);
     if (!res.ok) return; // 404 simply means nothing cached yet
     const data = await res.json();
     const h = data.histogram;

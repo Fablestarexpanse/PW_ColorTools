@@ -1,6 +1,9 @@
 // src/comfy.ts
 import { app } from "/scripts/app.js";
 import { api } from "/scripts/api.js";
+function fetchPw(path) {
+  return api.fetchApi(path, { cache: "no-store" });
+}
 var MIN_FRONTEND = [1, 40, 0];
 function getWidget(node, name) {
   return node.widgets?.find((w) => w.name === name);
@@ -984,7 +987,7 @@ var Preview = class _Preview {
     if (this.loading) return;
     this.loading = true;
     try {
-      const res = await fetch(`/pw_color/input/${nodeId}`);
+      const res = await fetchPw(`/pw_color/input/${nodeId}`);
       if (!res.ok) return;
       const bmp = await createImageBitmap(await res.blob());
       this.source?.dispose();
@@ -1007,8 +1010,8 @@ var Preview = class _Preview {
     this.loadingOutput = true;
     try {
       const [full, crop] = await Promise.all([
-        fetch(`/pw_color/output/${nodeId}`),
-        fetch(`/pw_color/output_crop/${nodeId}`)
+        fetchPw(`/pw_color/output/${nodeId}`),
+        fetchPw(`/pw_color/output_crop/${nodeId}`)
       ]);
       if (!full.ok) return;
       const bmp = await createImageBitmap(await full.blob());
@@ -1740,7 +1743,7 @@ function writeState(node, ui) {
 }
 async function loadHistogram(node, ui) {
   try {
-    const res = await fetch(`/pw_color/histogram/${node.id}`);
+    const res = await fetchPw(`/pw_color/histogram/${node.id}`);
     if (!res.ok) return;
     const data = await res.json();
     const h = data.histogram;
@@ -2158,7 +2161,7 @@ var presetCache = null;
 async function loadPresets() {
   if (presetCache) return presetCache;
   try {
-    const res = await fetch("/pw_color/presets");
+    const res = await fetchPw("/pw_color/presets");
     if (!res.ok) return presetCache = [];
     presetCache = (await res.json()).presets ?? [];
   } catch {
@@ -2276,7 +2279,7 @@ function buildThumbnails(node, ui) {
 }
 async function loadSource(node, ui) {
   try {
-    const res = await fetch(`/pw_color/input/${node.id}`);
+    const res = await fetchPw(`/pw_color/input/${node.id}`);
     if (!res.ok) return;
     const blob = await res.blob();
     const bmp = await createImageBitmap(blob);

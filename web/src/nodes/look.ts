@@ -11,7 +11,7 @@
  * is the least-used control on a busy node.
  */
 
-import { app, chainHandler, getWidget, type NodeLike } from '../comfy.ts';
+import { type NodeLike, app, chainHandler, fetchPw, getWidget } from '../comfy.ts';
 import { BADGE, PW } from '../theme.ts';
 import { Preview } from '../canvas/preview.ts';
 import { Lattice, DEFAULT_SIZE } from '../core/lattice.ts';
@@ -87,7 +87,7 @@ let presetCache: Preset[] | null = null;
 async function loadPresets(): Promise<Preset[]> {
   if (presetCache) return presetCache;
   try {
-    const res = await fetch('/pw_color/presets');
+    const res = await fetchPw('/pw_color/presets');
     if (!res.ok) return (presetCache = []);
     presetCache = (await res.json()).presets ?? [];
   } catch {
@@ -215,7 +215,7 @@ function buildThumbnails(node: NodeLike, ui: LookUI): void {
 /** Fetch the node's cached input and downscale it to thumbnail size. */
 async function loadSource(node: NodeLike, ui: LookUI): Promise<void> {
   try {
-    const res = await fetch(`/pw_color/input/${node.id}`);
+    const res = await fetchPw(`/pw_color/input/${node.id}`);
     if (!res.ok) return; // 404 just means the graph has not run yet
     const blob = await res.blob();
     const bmp = await createImageBitmap(blob);

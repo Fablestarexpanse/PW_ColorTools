@@ -21,6 +21,20 @@ import { api } from '/scripts/api.js';
 
 export { app, api };
 
+/**
+ * Fetch one of the pack's own routes, through the host's fetch rather than the
+ * global one.
+ *
+ * `api.fetchApi` is what applies ComfyUI's base path and whatever headers the
+ * deployment needs — which is exactly what a bare `fetch('/pw_color/...')`
+ * skips. The events side of this pack already went through `api`; the HTTP
+ * side did not, so the pack worked on a default install and quietly 404'd
+ * behind a reverse proxy that serves ComfyUI under a subpath.
+ */
+export function fetchPw(path: string): Promise<Response> {
+  return api.fetchApi(path, { cache: 'no-store' });
+}
+
 /** Lowest frontend we have actually tested against. */
 export const MIN_FRONTEND = [1, 40, 0] as const;
 
