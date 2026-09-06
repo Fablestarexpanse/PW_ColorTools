@@ -22,7 +22,24 @@ from collections import OrderedDict
 
 import torch
 
+from .colour import luma_bt709, srgb_to_linear
 from .paths import LOOK_PRESETS
+
+__all__ = [
+    "store",
+    "store_output",
+    "store_input_for_node",
+    "store_output_for_node",
+    "get",
+    "get_output",
+    "register_routes",
+    "inputs",
+    "outputs",
+    "PROXY_LONG_EDGE",
+    "CROP_EDGE",
+    "MAX_ENTRIES",
+    "MAX_BYTES",
+]
 
 _log = logging.getLogger("PW_Color")
 
@@ -39,11 +56,67 @@ CROP_EDGE = 512
 MAX_ENTRIES = 24
 MAX_BYTES = 48 * 1024 * 1024
 
-_lock = threading.Lock()
-_cache: "OrderedDict[str, dict]" = OrderedDict()
-_out_cache: "OrderedDict[str, dict]" = OrderedDict()
-_bytes = 0
-_out_bytes = 0
+
+
+class _ByteCache:
+    """An LRU of encoded previews, bounded by entry count and by total bytes.
+
+    There were two of these written out by hand — one for inputs, one for
+    outputs — with the eviction loop and the byte accounting typed twice. The
+    copies had already diverged: the input cache counted only its JPEG proxy
+    while the output cache counted proxy plus crop, so the two "48 MB" limits
+    meant different amounts of memory.
+
+    Bounded by bytes as well as entries because entries are not the same size:
+    a 1:1 PNG crop of grain is an order of magnitude larger than a JPEG proxy,
+    and twenty-four of those is not a few megabytes.
+    """
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self._lock = threading.Lock()
+        self._entries: "OrderedDict[str, dict]" = OrderedDict()
+        self._bytes = 0
+
+    @staticmethod
+    def _size(entry: dict) -> int:
+        return sum(len(v) for v in entry.values() if isinstance(v, (bytes, bytearray)))
+
+    def put(self, key: str, entry: dict) -> None:
+        with self._lock:
+            old = self._entries.pop(str(key), None)
+            if old is not None:
+                self._bytes -= self._size(old)
+            self._entries[str(key)] = entry
+            self._bytes += self._size(entry)
+            while self._entries and (len(self._entries) > MAX_ENTRIES or self._bytes > MAX_BYTES):
+                _, dropped = self._entries.popitem(last=False)
+                self._bytes -= self._size(dropped)
+
+    def get(self, key: str) -> dict | None:
+        with self._lock:
+            entry = self._entries.get(str(key))
+            if entry is not None:
+                self._entries.move_to_end(str(key))
+            return entry
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+            self._bytes = 0
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    @property
+    def nbytes(self) -> int:
+        return self._bytes
+
+
+#: What each node was given, for the histogram and the before-side of a compare.
+inputs = _ByteCache("input")
+#: What a spatial node produced, for nodes whose effect cannot be baked.
+outputs = _ByteCache("output")
 
 
 def _histogram(image: torch.Tensor, bins: int = 256) -> dict[str, list[float]]:
@@ -53,8 +126,6 @@ def _histogram(image: torch.Tensor, bins: int = 256) -> dict[str, list[float]]:
     the downscaled proxy, and a histogram of a proxy is not the histogram of the
     image — resampling fills in the gaps that make a posterised source obvious.
     """
-    from .colour import luma_bt709, srgb_to_linear
-
     img = image[0, ..., :3].reshape(-1, 3).float().clamp(0, 1)
     out: dict[str, list[float]] = {}
     for i, key in enumerate(("r", "g", "b")):
@@ -66,6 +137,9 @@ def _histogram(image: torch.Tensor, bins: int = 256) -> dict[str, list[float]]:
 
 
 def _encode_proxy(image: torch.Tensor) -> bytes:
+    # Pillow and numpy are ComfyUI runtime dependencies rather than ours, and
+    # only the rendering paths need them. Deferred so importing the pack stays
+    # cheap and a colour-only use never touches them.
     from PIL import Image
 
     img = image[0, ..., :3].float().clamp(0, 1)
@@ -80,15 +154,17 @@ def _encode_proxy(image: torch.Tensor) -> bytes:
     return buf.getvalue()
 
 
-def store(node_id: str, image: torch.Tensor) -> None:
-    """Cache a node's input. Safe to call from the execution thread."""
-    global _bytes
+def store(node_id: str, image: torch.Tensor | None) -> None:
+    """Cache a node's input. Safe to call from the execution thread.
+
+    ``None`` is accepted rather than rejected: several nodes have an optional
+    IMAGE input, and "there was no image" is a normal thing for them to report.
+    """
     if image is None or image.ndim != 4:
         return
     try:
-        proxy = _encode_proxy(image)
         entry = {
-            "proxy": proxy,
+            "proxy": _encode_proxy(image),
             "histogram": _histogram(image),
             "width": int(image.shape[2]),
             "height": int(image.shape[1]),
@@ -96,16 +172,7 @@ def store(node_id: str, image: torch.Tensor) -> None:
     except Exception:  # pragma: no cover - never let a preview break a render
         _log.exception("PW Color: failed to cache input proxy for node %s", node_id)
         return
-
-    with _lock:
-        old = _cache.pop(str(node_id), None)
-        if old is not None:
-            _bytes -= len(old["proxy"])
-        _cache[str(node_id)] = entry
-        _bytes += len(proxy)
-        while _cache and (len(_cache) > MAX_ENTRIES or _bytes > MAX_BYTES):
-            _, dropped = _cache.popitem(last=False)
-            _bytes -= len(dropped["proxy"])
+    inputs.put(str(node_id), entry)
 
 
 def _encode_crop(image: torch.Tensor) -> bytes:
@@ -115,6 +182,9 @@ def _encode_crop(image: torch.Tensor) -> bytes:
     is precisely what grain *is*. A lossy crop would show the user a softer,
     finer grain than the one being rendered.
     """
+    # Pillow and numpy are ComfyUI runtime dependencies rather than ours, and
+    # only the rendering paths need them. Deferred so importing the pack stays
+    # cheap and a colour-only use never touches them.
     from PIL import Image
 
     img = image[0, ..., :3].float().clamp(0, 1)
@@ -127,7 +197,7 @@ def _encode_crop(image: torch.Tensor) -> bytes:
     return buf.getvalue()
 
 
-def store_output(node_id: str, image: torch.Tensor) -> None:
+def store_output(node_id: str, image: torch.Tensor | None) -> None:
     """Cache what a node *produced*, for nodes whose effect cannot be previewed
     any other way.
 
@@ -135,7 +205,6 @@ def store_output(node_id: str, image: torch.Tensor) -> None:
     Grain, halation and vignette are spatial, so there is nothing to bake — the
     only honest preview is the real output, which means caching it.
     """
-    global _out_bytes
     if image is None or image.ndim != 4:
         return
     try:
@@ -148,79 +217,69 @@ def store_output(node_id: str, image: torch.Tensor) -> None:
     except Exception:  # pragma: no cover - never let a preview break a render
         _log.exception("PW Color: failed to cache output for node %s", node_id)
         return
-
-    size = len(entry["proxy"]) + len(entry["crop"])
-    with _lock:
-        old = _out_cache.pop(str(node_id), None)
-        if old is not None:
-            _out_bytes -= len(old["proxy"]) + len(old["crop"])
-        _out_cache[str(node_id)] = entry
-        _out_bytes += size
-        while _out_cache and (len(_out_cache) > MAX_ENTRIES or _out_bytes > MAX_BYTES):
-            _, dropped = _out_cache.popitem(last=False)
-            _out_bytes -= len(dropped["proxy"]) + len(dropped["crop"])
+    outputs.put(str(node_id), entry)
 
 
 def get_output(node_id: str) -> dict | None:
-    with _lock:
-        entry = _out_cache.get(str(node_id))
-        if entry is not None:
-            _out_cache.move_to_end(str(node_id))
-        return entry
+    return outputs.get(str(node_id))
 
 
-def store_output_for_node(node_cls, image: torch.Tensor) -> bool:
-    """:func:`store_output`, keyed by the executing node. Never raises."""
-    hidden = getattr(node_cls, "hidden", None)
-    node_id = getattr(hidden, "unique_id", None) if hidden is not None else None
-    if node_id is None:
-        return False
-    try:
-        store_output(str(node_id), image)
-        return True
-    except Exception:
-        _log.warning("PW Color: could not cache the output for node %s", node_id, exc_info=True)
-        return False
-
-
-def store_for_node(node_cls, image: torch.Tensor) -> bool:
-    """Cache ``image`` under the executing node's id. Never raises.
-
-    Every node did this inline behind a bare ``except Exception: pass``, which
-    is how a broken cache went unnoticed for the whole project: the preview
-    stayed empty and nothing anywhere said why. One helper, one place to get it
-    right, and a warning when it does not work.
+def _executing_node_id(node_cls, *, quiet: bool) -> str | None:
+    """The id of the node currently executing, or ``None`` with a reason logged.
 
     ``cls.hidden`` is populated on a per-execution clone of the node class
     (``PREPARE_CLASS_CLONE``), so it is ``None`` outside a real run — that case
-    is silent, because it is normal in tests.
+    is normal in tests and says nothing.
+
+    A node that *has* hidden data but no ``unique_id`` is a different story:
+    that is a schema missing ``io.Hidden.unique_id``, and the symptom is a
+    preview panel that stays empty forever with no other clue.
     """
     hidden = getattr(node_cls, "hidden", None)
     if hidden is None:
-        _log.debug("PW Color: no hidden data on %s, skipping input cache", getattr(node_cls, "__name__", node_cls))
-        return False
+        _log.debug("PW Color: no hidden data on %s, skipping preview cache", getattr(node_cls, "__name__", node_cls))
+        return None
     node_id = getattr(hidden, "unique_id", None)
-    if node_id is None:
+    if node_id is None and not quiet:
         _log.warning(
             "PW Color: %s has no unique_id; the node's preview will stay empty. "
             "Is io.Hidden.unique_id declared in its schema?",
             getattr(node_cls, "__name__", node_cls),
         )
+    return None if node_id is None else str(node_id)
+
+
+def _store_for_node(cache_call, node_cls, image, what: str, *, quiet: bool) -> bool:
+    """Run ``cache_call`` under the executing node's id. Never raises.
+
+    Every node used to do this inline behind a bare ``except Exception: pass``,
+    which is how a broken cache went unnoticed for the whole project: the
+    preview stayed empty and nothing anywhere said why. One helper, one place
+    to get it right, and a warning when it does not work.
+    """
+    node_id = _executing_node_id(node_cls, quiet=quiet)
+    if node_id is None:
         return False
     try:
-        store(str(node_id), image)
+        cache_call(node_id, image)
         return True
     except Exception:
-        _log.warning("PW Color: could not cache the input for node %s", node_id, exc_info=True)
+        _log.warning("PW Color: could not cache the %s for node %s", what, node_id, exc_info=True)
         return False
+
+
+def store_input_for_node(node_cls, image: torch.Tensor | None) -> bool:
+    """Cache what this node was *given*, keyed by the executing node."""
+    return _store_for_node(store, node_cls, image, "input", quiet=False)
+
+
+def store_output_for_node(node_cls, image: torch.Tensor | None) -> bool:
+    """Cache what this node *produced*, keyed by the executing node."""
+    return _store_for_node(store_output, node_cls, image, "output", quiet=True)
 
 
 def get(node_id: str) -> dict | None:
-    with _lock:
-        entry = _cache.get(str(node_id))
-        if entry is not None:
-            _cache.move_to_end(str(node_id))
-        return entry
+    return inputs.get(str(node_id))
 
 
 def register_routes() -> bool:

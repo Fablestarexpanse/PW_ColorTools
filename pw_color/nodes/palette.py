@@ -13,6 +13,7 @@ from comfy_api.latest import io
 
 from ..palette import SORT_MODES, extract_palette
 from ..palette_io import PALETTE_FORMATS, list_saved, load_palette, save_palette
+from ..preview_server import store_input_for_node
 from ..swatch_strip import render_strip
 from ..types import Palette
 
@@ -151,9 +152,7 @@ class PW_Palette(io.ComfyNode):
                 sort=sort,
             )
 
-        from ..preview_server import store_for_node
-
-        store_for_node(cls, image)
+        store_input_for_node(cls, image)
 
         saved = ""
         if save_as.strip():

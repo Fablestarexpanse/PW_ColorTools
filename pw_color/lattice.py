@@ -256,6 +256,9 @@ class Lattice:
 
     @classmethod
     def from_transport(cls, obj: dict) -> "Lattice":
+        # numpy is a ComfyUI runtime dependency rather than one of ours, and
+        # only this transport path needs it. Deferred so importing the pack
+        # stays cheap for a colour-only use that never decodes a lattice.
         import numpy as np
 
         if int(obj.get("schema", 1)) != 1:

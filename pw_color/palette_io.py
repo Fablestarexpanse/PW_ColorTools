@@ -21,6 +21,9 @@ import re
 import struct
 from pathlib import Path
 
+import torch
+
+from . import colour as _colour
 from .colour import hex_to_srgb, srgb_to_hex
 from .types import Palette, Swatch
 from .userdata import newest_first, safe_name as _safe_name
@@ -125,10 +128,6 @@ def _swatches_from_hex(hexes: list[str], lossy: bool) -> Palette:
     numbers would be worse — a downstream node cannot tell a guess from a
     measurement.
     """
-    import torch
-
-    from . import colour as _colour
-
     n = max(1, len(hexes))
     colors = []
     for h in hexes:

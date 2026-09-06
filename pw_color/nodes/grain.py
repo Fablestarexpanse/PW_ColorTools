@@ -15,8 +15,9 @@ import torch
 from comfy_api.latest import io
 
 from ..grain import DEFAULT_CHROMA, GRAIN_BLEND_MODES, TonalResponse, apply_grain, plate_field, procedural_field
-from ..paths import GRAIN_DIR
 from ..grain import dither as apply_dither  # aliased: `dither` is also an input name
+from ..paths import GRAIN_DIR
+from ..preview_server import store_input_for_node, store_output_for_node
 from ..types import Look, LookOp
 
 PLATES_DIR = GRAIN_DIR
@@ -39,6 +40,9 @@ def plate_names() -> tuple[str, ...]:
 
 def _load_plate(name: str) -> torch.Tensor:
     """Load a plate from disk as ``[1,H,W,3]`` in sRGB-encoded [0,1]."""
+    # Pillow and numpy are ComfyUI runtime dependencies rather than ours, and
+    # only the rendering paths need them. Deferred so importing the pack stays
+    # cheap and a colour-only use never touches them.
     import numpy as np
     from PIL import Image
 
@@ -183,9 +187,7 @@ class PW_Grain(io.ComfyNode):
         dither: float = 1.0,
         look_in: dict | None = None,
     ) -> io.NodeOutput:
-        from ..preview_server import store_for_node, store_output_for_node
-
-        store_for_node(cls, image)
+        store_input_for_node(cls, image)
 
         b, h, w = image.shape[0], image.shape[1], image.shape[2]
         tonal = TonalResponse(shadows, midtones, highlights)

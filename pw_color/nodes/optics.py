@@ -17,6 +17,7 @@ import torch
 from comfy_api.latest import io
 
 from ..optics import apply_chromatic_aberration, apply_halation, apply_vignette
+from ..preview_server import store_input_for_node, store_output_for_node
 from ..types import Look, LookOp
 
 
@@ -99,9 +100,7 @@ class PW_Optics(io.ComfyNode):
         chromatic_aberration: float = 0.0,
         look_in: dict | None = None,
     ) -> io.NodeOutput:
-        from ..preview_server import store_for_node, store_output_for_node
-
-        store_for_node(cls, image)
+        store_input_for_node(cls, image)
 
         out = image
         ops: list[LookOp] = []

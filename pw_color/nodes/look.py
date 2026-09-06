@@ -31,8 +31,9 @@ from ..look import HSL_BANDS, ramp_from_palette
 from ..match import MATCH_TIERS, match_least_squares, match_mean_std
 from ..ops import build_sample_fn
 from ..paths import LOOK_PRESETS
-from ..presets import preset_name, resolve_preset
 from ..presets import preset_ids as _preset_ids
+from ..presets import preset_name, resolve_preset
+from ..preview_server import store_input_for_node
 from ..types import Look, LookOp, Palette
 
 GRADIENT_BLENDS = ("colour", "normal", "soft light", "overlay", "multiply", "screen")
@@ -190,9 +191,7 @@ class PW_Look(io.ComfyNode):
         quality: str = "high",
         look_in: dict | None = None,
     ) -> io.NodeOutput:
-        from ..preview_server import store_for_node
-
-        store_for_node(cls, image)
+        store_input_for_node(cls, image)
 
         params = resolve_preset(LOOK_PRESETS, preset, "PW Look").get("params", {})
 

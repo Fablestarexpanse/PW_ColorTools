@@ -19,8 +19,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import struct
 from dataclasses import dataclass, field
 from typing import Any, Iterable
+
+from .colour import hex_to_srgb
 
 __all__ = [
     "LOOK_SCHEMA",
@@ -243,11 +246,8 @@ class Palette:
     def to_ase_bytes(self) -> bytes:
         """Adobe Swatch Exchange, RGB float groups. Written by hand because it
         is 40 lines and the alternative is a dependency."""
-        import struct
 
         def block(sw: Swatch) -> bytes:
-            from .colour import hex_to_srgb
-
             r, g, b = hex_to_srgb(sw.hex)
             name = sw.hex + "\x00"
             name_bytes = name.encode("utf-16-be")

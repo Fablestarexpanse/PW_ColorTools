@@ -26,8 +26,9 @@ from ..curve import IDENTITY_POINTS
 from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from ..ops import build_sample_fn
 from ..paths import CURVE_PRESETS
-from ..presets import resolve_preset
 from ..presets import preset_ids as _preset_ids
+from ..presets import resolve_preset
+from ..preview_server import store_input_for_node
 from ..types import Look, LookOp
 
 
@@ -139,11 +140,7 @@ class PW_Curves(io.ComfyNode):
         final_quality: bool = False,
         look_in: dict | None = None,
     ) -> io.NodeOutput:
-        # Cache the input so the editor can draw its histogram and preview
-        # without waiting for a second execution.
-        from ..preview_server import store_for_node
-
-        store_for_node(cls, image)
+        store_input_for_node(cls, image)
 
         try:
             raw = json.loads(curves) if curves.strip() else {}

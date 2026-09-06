@@ -219,12 +219,10 @@ def ramp_from_palette(hexes: list[str]) -> list[tuple[float, list[float]]]:
     gradient map is a lightness mapping — feeding it a coverage-sorted palette
     would produce a ramp that jumps around.
     """
-    from .colour import hex_to_srgb, srgb_to_oklab
-
     entries = []
     for hx in hexes:
-        rgb = hex_to_srgb(hx)
-        lab = srgb_to_oklab(torch.tensor(rgb))
+        rgb = colour.hex_to_srgb(hx)
+        lab = colour.srgb_to_oklab(torch.tensor(rgb))
         entries.append((float(lab[0]), list(rgb)))
     entries.sort(key=lambda e: e[0])
     if len(entries) == 1:

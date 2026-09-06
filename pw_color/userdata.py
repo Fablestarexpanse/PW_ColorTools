@@ -37,6 +37,7 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9 ._-]")
 def output_root() -> Path:
     """ComfyUI's output directory, or a local one when running outside it."""
     try:
+        # ComfyUI-only module: absent when the pack is imported for tests.
         import folder_paths  # type: ignore
 
         return Path(folder_paths.get_output_directory())

@@ -21,6 +21,9 @@ introduce variance is pinned:
 
 from __future__ import annotations
 
+import hashlib
+import math
+
 import torch
 
 from . import colour
@@ -246,8 +249,6 @@ def _sort(items: list[tuple[Swatch, float]], mode: str) -> list[tuple[Swatch, fl
     elif mode == "lightness":
         key = lambda p: (-p[0].oklab[0], p[0].hex)  # noqa: E731
     else:  # hue
-        import math
-
         key = lambda p: (math.atan2(p[0].oklab[2], p[0].oklab[1]), p[0].hex)  # noqa: E731
     return sorted(items, key=key)
 
@@ -260,8 +261,6 @@ def _cheap_image_hash(img: torch.Tensor) -> str:
     different images colliding here would mean a stale-palette warning is
     missed, which is a cosmetic failure, not a correctness one.
     """
-    import hashlib
-
     flat = img.reshape(-1)
     stride = max(1, flat.numel() // 4096)
     sample = flat[::stride][:4096]

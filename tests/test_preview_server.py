@@ -8,9 +8,26 @@ unbounded version is a slow leak that only surfaces in long sessions.
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 from pw_color import preview_server as ps
+
+
+@pytest.fixture(autouse=True)
+def empty_caches():
+    """Both caches start empty for every test.
+
+    They used to be cleared by calling one of two `_reset` helpers by hand at
+    the top of each test, which meant a test that forgot inherited whatever the
+    previous one left behind — and the bounds tests are precisely the ones that
+    fill the cache up.
+    """
+    ps.inputs.clear()
+    ps.outputs.clear()
+    yield
+    ps.inputs.clear()
+    ps.outputs.clear()
 
 
 def _image(h: int = 32, w: int = 48, seed: int = 1) -> torch.Tensor:
@@ -18,14 +35,8 @@ def _image(h: int = 32, w: int = 48, seed: int = 1) -> torch.Tensor:
     return torch.rand(1, h, w, 3, generator=g)
 
 
-def _reset() -> None:
-    with ps._lock:
-        ps._cache.clear()
-    ps._bytes = 0
-
 
 def test_store_and_get_round_trip():
-    _reset()
     img = _image()
     ps.store("node-1", img)
     entry = ps.get("node-1")
@@ -36,12 +47,10 @@ def test_store_and_get_round_trip():
 
 
 def test_missing_node_returns_none():
-    _reset()
     assert ps.get("nope") is None
 
 
 def test_histogram_counts_every_pixel():
-    _reset()
     img = _image(16, 16)
     ps.store("n", img)
     h = ps.get("n")["histogram"]
@@ -50,7 +59,6 @@ def test_histogram_counts_every_pixel():
 
 
 def test_histogram_of_flat_black_is_one_spike():
-    _reset()
     ps.store("n", torch.zeros(1, 8, 8, 3))
     h = ps.get("n")["histogram"]
     assert h["luma"][0] == 64
@@ -58,14 +66,12 @@ def test_histogram_of_flat_black_is_one_spike():
 
 
 def test_histogram_of_flat_white_is_at_the_top():
-    _reset()
     ps.store("n", torch.ones(1, 8, 8, 3))
     h = ps.get("n")["histogram"]
     assert h["luma"][255] == 64
 
 
 def test_proxy_is_downscaled_but_dimensions_are_reported_full():
-    _reset()
     ps.store("big", _image(1024, 2048))
     entry = ps.get("big")
     # The reported size is the real image; the proxy is what got shrunk.
@@ -74,15 +80,13 @@ def test_proxy_is_downscaled_but_dimensions_are_reported_full():
 
 
 def test_cache_is_bounded_by_entry_count():
-    _reset()
     img = _image(8, 8)
     for i in range(ps.MAX_ENTRIES + 12):
         ps.store(str(i), img)
-    assert len(ps._cache) <= ps.MAX_ENTRIES
+    assert len(ps.inputs) <= ps.MAX_ENTRIES
 
 
 def test_eviction_is_least_recently_used():
-    _reset()
     img = _image(8, 8)
     for i in range(ps.MAX_ENTRIES):
         ps.store(str(i), img)
@@ -94,19 +98,17 @@ def test_eviction_is_least_recently_used():
 
 
 def test_restoring_the_same_node_does_not_double_count_bytes():
-    _reset()
     img = _image()
     ps.store("n", img)
-    first = ps._bytes
+    first = ps.inputs.nbytes
     for _ in range(5):
         ps.store("n", img)
-    assert len(ps._cache) == 1
-    assert ps._bytes == first
+    assert len(ps.inputs) == 1
+    assert ps.inputs.nbytes == first
 
 
 def test_bad_input_is_ignored_rather_than_raising():
     """A preview concern must never break a render."""
-    _reset()
     ps.store("n", None)  # type: ignore[arg-type]
     ps.store("n", torch.rand(32, 32, 3))  # missing batch dim
     assert ps.get("n") is None
@@ -120,14 +122,8 @@ def test_register_routes_is_safe_outside_a_server():
 # -- output cache, for spatial nodes -----------------------------------------
 
 
-def _reset_output() -> None:
-    with ps._lock:
-        ps._out_cache.clear()
-    ps._out_bytes = 0
-
 
 def test_output_cache_round_trip():
-    _reset_output()
     ps.store_output("n", _image(64, 96))
     entry = ps.get_output("n")
     assert entry is not None
@@ -139,7 +135,6 @@ def test_output_cache_round_trip():
 def test_crop_is_lossless_because_grain_is_high_frequency():
     """JPEG would smooth exactly the detail the crop exists to show, making
     grain look finer and softer than it renders."""
-    _reset_output()
     ps.store_output("n", _image(256, 256))
     entry = ps.get_output("n")
     assert entry["crop"][:8] == b"\x89PNG\r\n\x1a\n", "the 1:1 crop must not be lossy"
@@ -150,7 +145,6 @@ def test_crop_is_native_resolution_not_downscaled():
     from PIL import Image
     import io as _io
 
-    _reset_output()
     src = _image(1024, 1024)
     ps.store_output("n", src)
     with Image.open(_io.BytesIO(ps.get_output("n")["crop"])) as im:
@@ -167,7 +161,6 @@ def test_crop_is_native_resolution_not_downscaled():
 
 
 def test_crop_handles_images_smaller_than_the_crop():
-    _reset_output()
     ps.store_output("n", _image(64, 48))
     from PIL import Image
     import io as _io
@@ -177,27 +170,23 @@ def test_crop_handles_images_smaller_than_the_crop():
 
 
 def test_output_cache_is_bounded_and_lru():
-    _reset_output()
     img = _image(16, 16)
     for i in range(ps.MAX_ENTRIES + 6):
         ps.store_output(str(i), img)
-    assert len(ps._out_cache) <= ps.MAX_ENTRIES
+    assert len(ps.outputs) <= ps.MAX_ENTRIES
     assert ps.get_output("0") is None
 
 
 def test_output_cache_does_not_double_count_bytes():
-    _reset_output()
     img = _image(64, 64)
     ps.store_output("n", img)
-    first = ps._out_bytes
+    first = ps.outputs.nbytes
     for _ in range(4):
         ps.store_output("n", img)
-    assert len(ps._out_cache) == 1 and ps._out_bytes == first
+    assert len(ps.outputs) == 1 and ps.outputs.nbytes == first
 
 
 def test_output_and_input_caches_are_independent():
-    _reset()
-    _reset_output()
     ps.store("n", _image(32, 32))
     assert ps.get_output("n") is None
     ps.store_output("n", _image(32, 32))
@@ -205,7 +194,6 @@ def test_output_and_input_caches_are_independent():
 
 
 def test_store_output_for_node_is_silent_without_hidden_data():
-    _reset_output()
 
     class Fake:
         hidden = None
@@ -214,7 +202,6 @@ def test_store_output_for_node_is_silent_without_hidden_data():
 
 
 def test_bad_output_is_ignored_rather_than_raising():
-    _reset_output()
     ps.store_output("n", None)  # type: ignore[arg-type]
     ps.store_output("n", torch.rand(32, 32, 3))
     assert ps.get_output("n") is None
