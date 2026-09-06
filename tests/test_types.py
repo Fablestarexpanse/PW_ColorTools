@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from pw_color.palette_io import to_bytes
 from pw_color.types import Look, LookOp, Palette, Swatch, canonical_json, content_hash
 
 
@@ -100,7 +101,7 @@ def test_palette_rejects_bad_oklab():
 
 
 def test_palette_ase_export_header():
-    data = _palette().to_ase_bytes()
+    data = to_bytes(_palette(), "ase")
     assert data[:4] == b"ASEF"
     assert int.from_bytes(data[8:12], "big") == 3
 

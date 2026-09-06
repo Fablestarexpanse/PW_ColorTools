@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import torch
 
+from .bloom import bright_pass_bloom
 from .blur import gaussian_blur, sigma_for_size
 from .colour import linear_to_srgb, luma_bt709, srgb_to_linear, with_alpha_of
 
@@ -42,24 +43,7 @@ def apply_halation(
     red-sensitive layer being re-exposed from behind. A neutral-tinted version
     of this effect is just bloom, which is what PW Look's glow already does.
     """
-    if amount <= 0.0:
-        return image
-
-    rgb = image[..., :3]
-    lin = srgb_to_linear(rgb.clamp(0.0, 1.0))
-    lum = luma_bt709(lin).unsqueeze(-1)
-
-    knee = max(1e-4, (1.0 - threshold) * 0.5)
-    t = ((lum - threshold) / knee).clamp(0.0, 1.0)
-    bright = lin * (t * t * (3.0 - 2.0 * t))
-
-    # Radius in output pixels, matching the absolute-size contract PW Grain
-    # sets, so a look keeps matching itself across resolutions.
-    blurred = gaussian_blur(bright, sigma_for_size(max(0.5, float(radius))))
-    tintv = torch.tensor(tint, dtype=blurred.dtype, device=blurred.device)
-
-    out = linear_to_srgb(lin + blurred * tintv * float(amount)).clamp(0.0, 1.0)
-    return with_alpha_of(out, image)
+    return bright_pass_bloom(image, amount, radius, threshold, tint)
 
 
 def apply_vignette(

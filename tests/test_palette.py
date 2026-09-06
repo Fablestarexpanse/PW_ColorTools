@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from pw_color.palette_io import to_bytes
 from pw_color import colour
 from pw_color.palette import SORT_MODES, extract_palette, kmeans_oklab
 from pw_color.swatch_strip import render_strip
@@ -273,7 +274,7 @@ def test_hex_string_matches_the_swatch_order():
 
 def test_ase_export_is_well_formed():
     pal = extract_palette(_photo(), count=4)
-    data = pal.to_ase_bytes()
+    data = to_bytes(pal, "ase")
     assert data[:4] == b"ASEF"
     assert int.from_bytes(data[8:12], "big") == 4
 

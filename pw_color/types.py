@@ -19,11 +19,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import struct
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from .colour import hex_to_srgb
 
 __all__ = [
     "LOOK_SCHEMA",
@@ -242,20 +240,6 @@ class Palette:
     @classmethod
     def from_json(cls, text: str) -> "Palette":
         return cls.from_dict(json.loads(text))
-
-    def to_ase_bytes(self) -> bytes:
-        """Adobe Swatch Exchange, RGB float groups. Written by hand because it
-        is 40 lines and the alternative is a dependency."""
-
-        def block(sw: Swatch) -> bytes:
-            r, g, b = hex_to_srgb(sw.hex)
-            name = sw.hex + "\x00"
-            name_bytes = name.encode("utf-16-be")
-            body = struct.pack(">H", len(name)) + name_bytes + b"RGB " + struct.pack(">fff", r, g, b) + struct.pack(">H", 0)
-            return struct.pack(">HI", 0x0001, len(body)) + body
-
-        blocks = b"".join(block(c) for c in self.colors)
-        return b"ASEF" + struct.pack(">HHI", 1, 0, len(self.colors)) + blocks
 
 
 def swatches_from_iterable(items: Iterable[dict[str, Any]]) -> list[Swatch]:

@@ -82,6 +82,27 @@ def safe_name(name: str, fmt: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _to_ase(palette: Palette) -> bytes:
+    """Adobe Swatch Exchange, RGB float groups. Written by hand because it is
+    forty lines and the alternative is a dependency.
+
+    Here rather than on Palette itself: `_from_ase` and the other three writers
+    live in this module, and a format's reader and writer belong side by side —
+    they are two halves of one decision about bytes on disk. `types.py` is where
+    the LOOK and PALETTE *types* live, not where file formats do.
+    """
+
+    def block(sw: Swatch) -> bytes:
+        r, g, b = hex_to_srgb(sw.hex)
+        name = sw.hex + "\x00"
+        name_bytes = name.encode("utf-16-be")
+        body = struct.pack(">H", len(name)) + name_bytes + b"RGB " + struct.pack(">fff", r, g, b) + struct.pack(">H", 0)
+        return struct.pack(">HI", 0x0001, len(body)) + body
+
+    blocks = b"".join(block(c) for c in palette.colors)
+    return b"ASEF" + struct.pack(">HHI", 1, 0, len(palette.colors)) + blocks
+
+
 def _to_gpl(palette: Palette, name: str) -> bytes:
     lines = ["GIMP Palette", f"Name: {name}", f"Columns: {min(len(palette.colors), 8)}", "#"]
     for sw in palette.colors:
@@ -98,7 +119,7 @@ def to_bytes(palette: Palette, fmt: str, name: str = "palette") -> bytes:
     if fmt == "json":
         return palette.to_json().encode("utf-8")
     if fmt == "ase":
-        return palette.to_ase_bytes()
+        return _to_ase(palette)
     if fmt == "gpl":
         return _to_gpl(palette, name)
     if fmt == "txt":

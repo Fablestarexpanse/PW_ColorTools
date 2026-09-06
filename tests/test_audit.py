@@ -396,3 +396,21 @@ def test_every_look_emitting_node_can_also_receive_one():
         )
         name = re.search(r'io\.Custom\("LOOK"\)\.Input\(\s*"(\w+)"', src)
         assert name, f"{path.name}: could not read the LOOK input's name"
+
+
+def test_no_source_file_contains_a_control_character():
+    """A stray NUL or other control byte in a source file is a syntax error
+    Python reports without a line number, and it is invisible in a diff.
+
+    Easy to introduce by accident when a file is written by a script that
+    processes escape sequences one time too many; hard to spot afterwards.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    allowed = {9, 10, 13}  # tab, newline, carriage return
+    for pattern in ("pw_color/**/*.py", "tests/*.py", "web/src/**/*.ts", "web/tools/*.ts"):
+        for path in sorted(root.glob(pattern)):
+            data = path.read_bytes()
+            bad = sorted({b for b in data if b < 32 and b not in allowed})
+            assert not bad, f"{path.relative_to(root)} contains control bytes {bad}"

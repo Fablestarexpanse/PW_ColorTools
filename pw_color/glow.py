@@ -15,8 +15,7 @@ from __future__ import annotations
 
 import torch
 
-from .blur import gaussian_blur, sigma_for_size
-from .colour import linear_to_srgb, luma_bt709, srgb_to_linear, with_alpha_of
+from .bloom import bright_pass_bloom
 
 __all__ = ["apply_glow"]
 
@@ -39,30 +38,7 @@ def apply_glow(
     ``warmth`` biases the glow toward amber, which is what a real lens does and
     what stops the effect reading as digital haze.
     """
-    if amount <= 0.0:
-        return image
-
-    rgb = image[..., :3]
-    lin = srgb_to_linear(rgb.clamp(0.0, 1.0))
-    lum = luma_bt709(lin).unsqueeze(-1)
-
-    # Soft knee over the top of the threshold rather than a hard cut.
-    knee = max(1e-4, (1.0 - threshold) * 0.5)
-    t = ((lum - threshold) / knee).clamp(0.0, 1.0)
-    weight = t * t * (3.0 - 2.0 * t)
-    bright = lin * weight
-
-    # Radius is absolute in pixels, matching PW Grain's size contract, so a
-    # look keeps matching itself across resolutions.
-    blurred = gaussian_blur(bright, sigma_for_size(max(0.5, float(radius))))
-
-    if warmth != 0.0:
-        tintv = torch.tensor(
-            [1.0 + 0.35 * warmth, 1.0, 1.0 - 0.45 * warmth],
-            dtype=blurred.dtype,
-            device=blurred.device,
-        )
-        blurred = blurred * tintv
-
-    out = linear_to_srgb(lin + blurred * float(amount)).clamp(0.0, 1.0)
-    return with_alpha_of(out, image)
+    # Only the tint is specific to glow: warmth biases it toward amber, which
+    # is what a real lens does and what stops the effect reading as digital haze.
+    tint = (1.0 + 0.35 * warmth, 1.0, 1.0 - 0.45 * warmth) if warmth != 0.0 else None
+    return bright_pass_bloom(image, amount, radius, threshold, tint)

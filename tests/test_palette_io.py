@@ -265,7 +265,7 @@ def test_ase_bytes_match_the_browsers():
     the same file. Both are hand-rolled binary writers, big-endian with
     UTF-16BE names, and nothing else would notice them drifting."""
     palette = Palette(colors=[Swatch(hex=h, oklab=(0.5, 0.0, 0.0), coverage=0.2) for h in HEXES])
-    assert palette.to_ase_bytes() == _node_export(HEXES, "pw")["ase"]
+    assert to_bytes(palette, "ase") == _node_export(HEXES, "pw")["ase"]
 
 
 def test_gpl_text_matches_the_browsers():
