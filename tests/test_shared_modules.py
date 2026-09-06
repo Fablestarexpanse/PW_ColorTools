@@ -156,3 +156,37 @@ def test_newest_first_orders_by_mtime_then_name(tmp_path):
 
 def test_newest_first_on_a_missing_directory_is_empty(tmp_path):
     assert U.newest_first(tmp_path / "nope", ("json",)) == []
+
+
+# -- atomic writes -----------------------------------------------------------
+
+
+def test_write_atomic_creates_the_file_and_leaves_no_partial(tmp_path):
+    out = U.write_atomic(tmp_path / "a" / "b.look", b"hello")
+    assert out.read_bytes() == b"hello"
+    assert list(out.parent.iterdir()) == [out], "a .partial file was left behind"
+
+
+def test_a_failed_write_leaves_the_previous_file_intact(tmp_path, monkeypatch):
+    """The reason this exists. A direct write truncates the target first, so an
+    interruption turns the look the user had into an empty file."""
+    target = tmp_path / "keep.look"
+    target.write_bytes(b"the original")
+
+    def boom(self, data):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(type(target), "write_bytes", boom)
+    with pytest.raises(OSError):
+        U.write_atomic(target, b"the replacement")
+
+    assert target.read_bytes() == b"the original", "an interrupted save destroyed the old file"
+    assert not (tmp_path / "keep.look.partial").exists(), "a .partial file was left behind"
+
+
+def test_write_atomic_replaces_an_existing_file(tmp_path):
+    target = tmp_path / "x.json"
+    target.write_bytes(b"old")
+    U.write_atomic(target, b"new")
+    assert target.read_bytes() == b"new"
+    assert len(list(tmp_path.iterdir())) == 1

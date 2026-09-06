@@ -26,7 +26,7 @@ import torch
 from . import colour as _colour
 from .colour import hex_to_srgb, srgb_to_hex
 from .types import Palette, Swatch
-from .userdata import newest_first, safe_name as _safe_name
+from .userdata import newest_first, safe_name as _safe_name, write_atomic
 from .userdata import user_dir
 
 __all__ = [
@@ -132,8 +132,7 @@ def save_palette(palette: Palette, name: str, fmt: str = "json") -> Path:
     if fmt not in PALETTE_FORMATS:
         raise ValueError(f"unknown palette format {fmt!r}")
     path = writable_dir() / safe_name(name, fmt)
-    path.write_bytes(to_bytes(palette, fmt, name=path.stem))
-    return path
+    return write_atomic(path, to_bytes(palette, fmt, name=path.stem))
 
 
 # ---------------------------------------------------------------------------

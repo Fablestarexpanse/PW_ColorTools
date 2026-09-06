@@ -19,7 +19,7 @@ from .lattice import DEFAULT_SIZE, Lattice
 from .ops import build_sample_fn
 from .paths import LOOKS_DIR
 from .types import Look
-from .userdata import newest_first, safe_name as _safe_name
+from .userdata import newest_first, safe_name as _safe_name, write_atomic
 from .userdata import user_dir
 
 __all__ = [
@@ -81,8 +81,7 @@ def safe_name(name: str, ext: str = "look") -> str:
 
 def save_look(look: Look, name: str) -> Path:
     path = writable_dir() / safe_name(name)
-    path.write_text(look.to_json(), encoding="utf-8")
-    return path
+    return write_atomic(path, look.to_json().encode("utf-8"))
 
 
 def load_look(filename: str) -> Look:

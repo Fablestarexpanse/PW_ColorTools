@@ -20,6 +20,7 @@ from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from ..look_io import bake_cube, export_report, list_saved, load_look, safe_name, save_look, writable_dir
 from ..ops import build_sample_fn
 from ..types import Look
+from ..userdata import write_atomic
 
 
 class PW_LookIO(io.ComfyNode):
@@ -114,10 +115,8 @@ class PW_LookIO(io.ComfyNode):
         if export_cube.strip():
             path = writable_dir() / safe_name(export_cube, "cube")
             try:
-                path.write_text(
-                    bake_cube(resolved, size=lut_size, title=resolved.name or Path(export_cube).stem),
-                    encoding="utf-8",
-                )
+                cube = bake_cube(resolved, size=lut_size, title=resolved.name or Path(export_cube).stem)
+                write_atomic(path, cube.encode("utf-8"))
             except OSError as exc:
                 # The save above may already have succeeded. Raising here would
                 # throw away the whole report, including the line telling the
