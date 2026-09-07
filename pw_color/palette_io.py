@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 import struct
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 import torch
 
@@ -120,16 +120,23 @@ def _to_txt(palette: Palette) -> bytes:
     return ("\n".join(sw.hex for sw in palette.colors) + "\n").encode("utf-8")
 
 
+#: Every format, with the two functions that make it work.
+#:
+#: The set used to be spelled three times — a label dict, a writer if-chain and
+#: a reader dict — so adding a fifth format meant finding all three.
+_WRITERS: dict[str, "Callable[[Palette, str], bytes]"] = {
+    "json": lambda palette, _name: palette.to_json().encode("utf-8"),
+    "ase": lambda palette, _name: _to_ase(palette),
+    "gpl": _to_gpl,
+    "txt": lambda palette, _name: _to_txt(palette),
+}
+
+
 def to_bytes(palette: Palette, fmt: PaletteFormat, name: str = "palette") -> bytes:
-    if fmt == "json":
-        return palette.to_json().encode("utf-8")
-    if fmt == "ase":
-        return _to_ase(palette)
-    if fmt == "gpl":
-        return _to_gpl(palette, name)
-    if fmt == "txt":
-        return _to_txt(palette)
-    raise ValueError(f"unknown palette format {fmt!r}, expected one of {tuple(PALETTE_FORMATS)}")
+    writer = _WRITERS.get(fmt)
+    if writer is None:
+        raise ValueError(f"unknown palette format {fmt!r}, expected one of {tuple(PALETTE_FORMATS)}")
+    return writer(palette, name)
 
 
 def save_palette(palette: Palette, name: str, fmt: PaletteFormat = "json") -> Path:

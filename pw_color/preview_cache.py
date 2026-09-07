@@ -29,7 +29,7 @@ import torch
 from .colour import luma_bt709, srgb_to_linear
 
 __all__ = [
-    "store",
+    "store_input",
     "store_output",
     "store_input_for_node",
     "store_output_for_node",
@@ -157,7 +157,7 @@ def _encode_proxy(image: torch.Tensor) -> bytes:
     return buf.getvalue()
 
 
-def store(node_id: str, image: torch.Tensor | None) -> None:
+def store_input(node_id: str, image: torch.Tensor | None) -> None:
     """Cache a node's input. Safe to call from the execution thread.
 
     ``None`` is accepted rather than rejected: several nodes have an optional
@@ -278,7 +278,7 @@ def _store_for_node(
 
 def store_input_for_node(node_cls: type, image: torch.Tensor | None) -> bool:
     """Cache what this node was *given*, keyed by the executing node."""
-    return _store_for_node(store, node_cls, image, "input", quiet=False)
+    return _store_for_node(store_input, node_cls, image, "input", quiet=False)
 
 
 def store_output_for_node(node_cls: type, image: torch.Tensor | None) -> bool:
@@ -286,7 +286,7 @@ def store_output_for_node(node_cls: type, image: torch.Tensor | None) -> bool:
     return _store_for_node(store_output, node_cls, image, "output", quiet=True)
 
 
-def get(node_id: str) -> dict | None:
+def get_input(node_id: str) -> dict | None:
     return inputs.get(str(node_id))
 
 

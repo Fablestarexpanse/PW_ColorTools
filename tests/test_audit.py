@@ -386,9 +386,7 @@ def test_every_look_emitting_node_can_also_receive_one():
     any node file, and a grep-based version of this test would now pass by
     finding nothing.
     """
-    import pytest as _pytest
-
-    _pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")
+    pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")
     from pw_color.nodes import curves, grain, look, look_io, match_source, optics, palette, scopes
 
     checked = 0
@@ -435,9 +433,7 @@ def test_execute_signature_defaults_match_the_schema():
     """
     import inspect
 
-    import pytest as _pytest
-
-    _pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")
+    pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")
     from pw_color.nodes import curves, grain, look, look_io, match_source, optics, palette, scopes
 
     modules = (curves, grain, look, look_io, match_source, optics, palette, scopes)
@@ -500,9 +496,7 @@ def test_node_inputs_from_a_closed_set_are_typed_as_that_set():
     it, not widened back to `str` on the way into execute()."""
     import inspect
 
-    import pytest as _pytest
-
-    _pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")
+    pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")
     from pw_color.nodes import grain, look, match_source, palette, scopes
 
     expected = {

@@ -39,8 +39,8 @@ def _image(h: int = 32, w: int = 48, seed: int = 1) -> torch.Tensor:
 
 def test_store_and_get_round_trip():
     img = _image()
-    pc.store("node-1", img)
-    entry = pc.get("node-1")
+    pc.store_input("node-1", img)
+    entry = pc.get_input("node-1")
     assert entry is not None
     assert entry["width"] == 48 and entry["height"] == 32
     assert entry["proxy"][:2] == b"\xff\xd8"  # JPEG SOI
@@ -48,33 +48,33 @@ def test_store_and_get_round_trip():
 
 
 def test_missing_node_returns_none():
-    assert pc.get("nope") is None
+    assert pc.get_input("nope") is None
 
 
 def test_histogram_counts_every_pixel():
     img = _image(16, 16)
-    pc.store("n", img)
-    h = pc.get("n")["histogram"]
+    pc.store_input("n", img)
+    h = pc.get_input("n")["histogram"]
     for channel in ("r", "g", "b", "luma"):
         assert int(sum(h[channel])) == 16 * 16, channel
 
 
 def test_histogram_of_flat_black_is_one_spike():
-    pc.store("n", torch.zeros(1, 8, 8, 3))
-    h = pc.get("n")["histogram"]
+    pc.store_input("n", torch.zeros(1, 8, 8, 3))
+    h = pc.get_input("n")["histogram"]
     assert h["luma"][0] == 64
     assert sum(h["luma"][1:]) == 0
 
 
 def test_histogram_of_flat_white_is_at_the_top():
-    pc.store("n", torch.ones(1, 8, 8, 3))
-    h = pc.get("n")["histogram"]
+    pc.store_input("n", torch.ones(1, 8, 8, 3))
+    h = pc.get_input("n")["histogram"]
     assert h["luma"][255] == 64
 
 
 def test_proxy_is_downscaled_but_dimensions_are_reported_full():
-    pc.store("big", _image(1024, 2048))
-    entry = pc.get("big")
+    pc.store_input("big", _image(1024, 2048))
+    entry = pc.get_input("big")
     # The reported size is the real image; the proxy is what got shrunk.
     assert entry["width"] == 2048 and entry["height"] == 1024
     assert len(entry["proxy"]) < 400_000
@@ -83,36 +83,36 @@ def test_proxy_is_downscaled_but_dimensions_are_reported_full():
 def test_cache_is_bounded_by_entry_count():
     img = _image(8, 8)
     for i in range(pc.MAX_ENTRIES + 12):
-        pc.store(str(i), img)
+        pc.store_input(str(i), img)
     assert len(pc.inputs) <= pc.MAX_ENTRIES
 
 
 def test_eviction_is_least_recently_used():
     img = _image(8, 8)
     for i in range(pc.MAX_ENTRIES):
-        pc.store(str(i), img)
+        pc.store_input(str(i), img)
     # Touch the oldest so it is no longer the least recently used.
-    pc.get("0")
-    pc.store("fresh", img)
-    assert pc.get("0") is not None
-    assert pc.get("1") is None
+    pc.get_input("0")
+    pc.store_input("fresh", img)
+    assert pc.get_input("0") is not None
+    assert pc.get_input("1") is None
 
 
 def test_restoring_the_same_node_does_not_double_count_bytes():
     img = _image()
-    pc.store("n", img)
+    pc.store_input("n", img)
     first = pc.inputs.nbytes
     for _ in range(5):
-        pc.store("n", img)
+        pc.store_input("n", img)
     assert len(pc.inputs) == 1
     assert pc.inputs.nbytes == first
 
 
 def test_bad_input_is_ignored_rather_than_raising():
     """A preview concern must never break a render."""
-    pc.store("n", None)  # type: ignore[arg-type]
-    pc.store("n", torch.rand(32, 32, 3))  # missing batch dim
-    assert pc.get("n") is None
+    pc.store_input("n", None)  # type: ignore[arg-type]
+    pc.store_input("n", torch.rand(32, 32, 3))  # missing batch dim
+    assert pc.get_input("n") is None
 
 
 def test_register_routes_is_safe_outside_a_server():
@@ -188,10 +188,10 @@ def test_output_cache_does_not_double_count_bytes():
 
 
 def test_output_and_input_caches_are_independent():
-    pc.store("n", _image(32, 32))
+    pc.store_input("n", _image(32, 32))
     assert pc.get_output("n") is None
     pc.store_output("n", _image(32, 32))
-    assert pc.get("n") is not None and pc.get_output("n") is not None
+    assert pc.get_input("n") is not None and pc.get_output("n") is not None
 
 
 def test_store_output_for_node_is_silent_without_hidden_data():
@@ -290,11 +290,11 @@ def test_every_route_the_frontend_calls_is_registered():
 
 
 def test_input_route_serves_the_cached_jpeg():
-    pc.store("n", _image())
+    pc.store_input("n", _image())
     res = _call("/pw_color/input/{node_id}")
     assert res.content_type == "image/jpeg"
     assert res.body[:2] == b"\xff\xd8"
-    assert res.headers["Cache-Control"] == "no-store", "a stale preview is worse than none"
+    assert res.headers["Cache-Control"] == "no-store_input", "a stale preview is worse than none"
 
 
 def test_output_crop_route_serves_png_not_jpeg():
@@ -306,7 +306,7 @@ def test_output_crop_route_serves_png_not_jpeg():
 
 
 def test_histogram_route_returns_the_bins_and_the_true_size():
-    pc.store("n", _image(h=32, w=48))
+    pc.store_input("n", _image(h=32, w=48))
     res = _call("/pw_color/histogram/{node_id}")
     assert res.status == 200
     assert res.data["width"] == 48 and res.data["height"] == 32

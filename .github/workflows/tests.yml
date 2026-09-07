@@ -52,8 +52,13 @@ jobs:
         run: python -m pytest tests/ -q -rs --junitxml=results.xml
 
       - name: Fail if a suite skipped
-        # One skip is expected and named: match source is intentionally a
-        # whole-frame statistic, so it sits out the per-frame leak check.
+        # Two kinds of skip are expected and named below. Everything else means
+        # a precondition is missing, which is the failure this gate exists for.
+        #
+        # The CUDA device tests are the honest gap: this runner has no GPU, so
+        # they skip here and only ever run on a developer machine that has one.
+        # They are allowed by name rather than by a wildcard, so a *new* skip in
+        # that file still fails.
         run: |
           python - <<'PY'
           import sys, xml.etree.ElementTree as ET
@@ -66,6 +71,11 @@ jobs:
           expected = {
               "tests.test_audit::test_pointwise_ops_do_not_leak_between_frames[match source]"
           }
+          # No GPU on a hosted runner; these cannot run here and must not be
+          # silently counted as passing either.
+          cuda = [n for n in skipped if n.startswith("tests.test_devices::") and "cuda" in n.lower()]
+          expected |= set(cuda)
+          print(f"{len(cuda)} CUDA test(s) skipped: no GPU on this runner.")
           unexpected = sorted(set(skipped) - expected)
           if unexpected:
               print("These tests skipped, which in CI means a precondition is missing:")

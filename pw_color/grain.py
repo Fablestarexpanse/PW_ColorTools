@@ -205,19 +205,19 @@ def plate_field(
         src = plate[min(b, plate.shape[0] - 1), ..., :3]
 
         # Mean-centre first: the plate's own exposure must not reach the image.
-        dev = src - src.mean()
+        deviation = src - src.mean()
 
         # Mirror-tile up to at least the frame size, then random-crop.
         reps_y = max(1, -(-height // ph))
         reps_x = max(1, -(-width // pw))
         if reps_y > 1 or reps_x > 1:
-            dev = _mirror_tile(dev, reps_y, reps_x)
-        th, tw = dev.shape[0], dev.shape[1]
+            deviation = _mirror_tile(deviation, reps_y, reps_x)
+        th, tw = deviation.shape[0], deviation.shape[1]
 
         g = torch.Generator(device="cpu").manual_seed(int(seed) + (b if vary_per_frame else 0))
         oy = int(torch.randint(0, max(1, th - height + 1), (1,), generator=g).item())
         ox = int(torch.randint(0, max(1, tw - width + 1), (1,), generator=g).item())
-        crop = dev[oy : oy + height, ox : ox + width]
+        crop = deviation[oy : oy + height, ox : ox + width]
         fields.append(crop.unsqueeze(0))
 
     field = torch.cat(fields, dim=0)

@@ -29,16 +29,21 @@ import logging
 from typing import Any, Awaitable, Callable
 
 from .paths import LOOK_PRESETS
-from .preview_cache import get, get_output
+from .preview_cache import get_input, get_output
 
 __all__ = ["register_routes"]
 
 _log = logging.getLogger("PW_Color")
 
-#: Set once `register_routes` has attached the handlers; see its docstring.
+#: Set once *this process* has attached the handlers.
+#:
+#: Module-global, so it guards a second call within one interpreter — which
+#: is the case that happens: a Manager reload or a second entrypoint. It
+#: cannot know whether some other code registered the same paths, and does
+#: not claim to.
 _routes_registered = False
 
-_NO_STORE = {"Cache-Control": "no-store"}
+_NO_STORE = {"Cache-Control": "no-store_input"}
 
 
 Handler = Callable[[Any], Awaitable[Any]]
@@ -69,7 +74,7 @@ def _histogram_handler(web: Any) -> Handler:
     """
 
     async def handler(request: Any) -> Any:
-        entry = get(request.match_info["node_id"])
+        entry = get_input(request.match_info["node_id"])
         if entry is None:
             return web.json_response({"error": "no cached input"}, status=404)
         return web.json_response(
@@ -103,7 +108,7 @@ def _routing_table(web: Any) -> list[tuple[str, Handler]]:
     is a ComfyUI dependency, absent when the pack is imported for tests.
     """
     return [
-        ("/pw_color/input/{node_id}", _bytes_handler(web, get, "proxy", "no cached input", "image/jpeg")),
+        ("/pw_color/input/{node_id}", _bytes_handler(web, get_input, "proxy", "no cached input", "image/jpeg")),
         ("/pw_color/histogram/{node_id}", _histogram_handler(web)),
         ("/pw_color/output/{node_id}", _bytes_handler(web, get_output, "proxy", "no cached output", "image/jpeg")),
         ("/pw_color/output_crop/{node_id}", _bytes_handler(web, get_output, "crop", "no cached output", "image/png")),

@@ -68,4 +68,8 @@ if _COMFY_AVAILABLE:
         return PWColorExtension()
 
 
-__all__ = ["comfy_entrypoint", "WEB_DIRECTORY"]
+#: `comfy_entrypoint` is defined only when comfy_api imports, which is to say
+#: only inside ComfyUI. Advertising it unconditionally meant `from pw_color
+#: import *` could raise on a bare checkout, so the list is built from what
+#: is actually here.
+__all__ = ["WEB_DIRECTORY"] + (["comfy_entrypoint"] if "comfy_entrypoint" in globals() else [])

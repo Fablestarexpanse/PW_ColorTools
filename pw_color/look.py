@@ -72,15 +72,15 @@ def _band(x: torch.Tensor, centre: float, half: float = _BAND_HALF) -> torch.Ten
     return rising * falling
 
 
-def op_tone(rgb: torch.Tensor, p: dict[str, Any]) -> torch.Tensor:
+def op_tone(rgb: torch.Tensor, params: dict[str, Any]) -> torch.Tensor:
     """Exposure, contrast, and the four tonal bands.
 
     Exposure and contrast run in linear light where stops and pivots mean
     something. Blacks, shadows, highlights and whites run on OKLab lightness,
     which is where "shadows" means what a user points at.
     """
-    exposure = float(p.get("exposure", 0.0))
-    contrast = float(p.get("contrast", 0.0))
+    exposure = float(params.get("exposure", 0.0))
+    contrast = float(params.get("contrast", 0.0))
     out = rgb
 
     if exposure != 0.0 or contrast != 0.0:
@@ -94,10 +94,10 @@ def op_tone(rgb: torch.Tensor, p: dict[str, Any]) -> torch.Tensor:
         out = colour.linear_to_srgb(lin)
 
     amounts = (
-        float(p.get("blacks", 0.0)),
-        float(p.get("shadows", 0.0)),
-        float(p.get("highlights", 0.0)),
-        float(p.get("whites", 0.0)),
+        float(params.get("blacks", 0.0)),
+        float(params.get("shadows", 0.0)),
+        float(params.get("highlights", 0.0)),
+        float(params.get("whites", 0.0)),
     )
     if any(a != 0.0 for a in amounts):
         lab = colour.srgb_to_oklab(out)
@@ -110,17 +110,17 @@ def op_tone(rgb: torch.Tensor, p: dict[str, Any]) -> torch.Tensor:
     return out
 
 
-def op_colour(rgb: torch.Tensor, p: dict[str, Any]) -> torch.Tensor:
+def op_colour(rgb: torch.Tensor, params: dict[str, Any]) -> torch.Tensor:
     """Warmth, tint, vibrance and saturation, all in OKLab.
 
     ``vibrance`` scales chroma more where there is little of it, so it lifts a
     muted sky without turning an already-saturated red into a flat blob.
     ``saturation`` scales everything equally.
     """
-    warmth = float(p.get("warmth", 0.0))
-    tint = float(p.get("tint", 0.0))
-    vibrance = float(p.get("vibrance", 0.0))
-    saturation = float(p.get("saturation", 1.0))
+    warmth = float(params.get("warmth", 0.0))
+    tint = float(params.get("tint", 0.0))
+    vibrance = float(params.get("vibrance", 0.0))
+    saturation = float(params.get("saturation", 1.0))
     if warmth == 0.0 and tint == 0.0 and vibrance == 0.0 and saturation == 1.0:
         return rgb
 
@@ -163,14 +163,14 @@ def _hue_distance(h: torch.Tensor, centre: float) -> torch.Tensor:
     return d - 2.0 * math.pi * torch.round(d / (2.0 * math.pi))
 
 
-def op_hsl(rgb: torch.Tensor, p: dict[str, Any]) -> torch.Tensor:
+def op_hsl(rgb: torch.Tensor, params: dict[str, Any]) -> torch.Tensor:
     """Eight-band hue / saturation / lightness mixer.
 
     Bands overlap smoothly and are weighted by chroma, so the mixer does not
     tug at near-neutral pixels whose hue is numerically defined but visually
     meaningless — the classic cause of blotchy skies.
     """
-    bands = p.get("bands") or {}
+    bands = params.get("bands") or {}
     active = {k: v for k, v in bands.items() if v and any(float(x) != 0.0 for x in (v.get("hue", 0), v.get("sat", 0), v.get("lum", 0)))}
     if not active:
         return rgb
@@ -228,14 +228,14 @@ def ramp_from_palette(hexes: list[str]) -> list[tuple[float, list[float]]]:
     return [(i / n, rgb) for i, (_, rgb) in enumerate(entries)]
 
 
-def op_gradient_map(rgb: torch.Tensor, p: dict[str, Any]) -> torch.Tensor:
+def op_gradient_map(rgb: torch.Tensor, params: dict[str, Any]) -> torch.Tensor:
     """Map lightness through a colour ramp, then blend back.
 
     Driven by OKLab lightness rather than by Rec.709 luma so that the mapping
     follows what the eye reads as light and dark.
     """
-    stops = p.get("stops") or []
-    amount = float(p.get("amount", 0.0))
+    stops = params.get("stops") or []
+    amount = float(params.get("amount", 0.0))
     if amount <= 0.0 or len(stops) < 2:
         return rgb
 
@@ -251,7 +251,7 @@ def op_gradient_map(rgb: torch.Tensor, p: dict[str, Any]) -> torch.Tensor:
     t = ((l - p0) / (p1 - p0).clamp(min=1e-9)).clamp(0.0, 1.0).unsqueeze(-1)
     mapped = torch.lerp(c0, c1, t)
 
-    mode = p.get("blend", "normal")
+    mode = params.get("blend", "normal")
     if mode in ("normal", "multiply", "screen", "overlay", "soft light"):
         # Unclamped: the lerp by `amount` below is what decides the result.
         blended = blend_pixels(rgb, mapped, mode)

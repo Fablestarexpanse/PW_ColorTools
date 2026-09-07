@@ -72,10 +72,10 @@ class Lattice:
 
     __slots__ = ("data", "size")
 
-    def __init__(self, data: torch.Tensor, _dtype: torch.dtype = torch.float32) -> None:
+    def __init__(self, data: torch.Tensor, dtype: torch.dtype = torch.float32) -> None:
         if data.ndim != 4 or data.shape[3] != 3 or len({*data.shape[:3]}) != 1:
             raise ValueError(f"lattice data must be [N,N,N,3], got {tuple(data.shape)}")
-        self.data = data.to(_dtype).contiguous()
+        self.data = data.to(dtype).contiguous()
         self.size = int(data.shape[0])
 
     # -- construction -------------------------------------------------------
@@ -92,7 +92,7 @@ class Lattice:
         r = axis.view(size, 1, 1).expand(size, size, size)
         g = axis.view(1, size, 1).expand(size, size, size)
         b = axis.view(1, 1, size).expand(size, size, size)
-        return cls(torch.stack((r, g, b), dim=-1), _dtype=dtype)
+        return cls(torch.stack((r, g, b), dim=-1), dtype=dtype)
 
     @classmethod
     def from_fn(
@@ -126,16 +126,16 @@ class Lattice:
         out = fn(pts)
         if out.shape != pts.shape:
             raise ValueError(f"sample fn returned {tuple(out.shape)}, expected {tuple(pts.shape)}")
-        raw = cls.from_flat(out.to(torch.float64), size, _dtype=torch.float64)
+        raw = cls.from_flat(out.to(torch.float64), size, dtype=torch.float64)
         return raw if encoding is None else Lattice.from_transport(raw.to_transport(encoding))
 
     @classmethod
-    def from_flat(cls, flat: torch.Tensor, size: int, _dtype: torch.dtype = torch.float32) -> "Lattice":
+    def from_flat(cls, flat: torch.Tensor, size: int, dtype: torch.dtype = torch.float32) -> "Lattice":
         """Build from red-fastest flat order ``[N**3, 3]``."""
         if flat.shape != (size**3, 3):
             raise ValueError(f"expected [{size**3},3], got {tuple(flat.shape)}")
         # flat is ordered (b, g, r); permute back to data[r, g, b].
-        return cls(flat.reshape(size, size, size, 3).permute(2, 1, 0, 3).contiguous(), _dtype=_dtype)
+        return cls(flat.reshape(size, size, size, 3).permute(2, 1, 0, 3).contiguous(), dtype=dtype)
 
     def to_flat(self) -> torch.Tensor:
         """Red-fastest flat order ``[N**3, 3]`` — the ``.cube`` / transport order."""

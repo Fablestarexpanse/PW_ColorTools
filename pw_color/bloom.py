@@ -31,7 +31,11 @@ def bright_pass_bloom(
     """Blur what is above ``threshold`` and add it back, tinted.
 
     ``radius`` is absolute in output pixels, matching the size contract PW Grain
-    sets, so a look keeps matching itself across resolutions.
+    sets, so a look keeps matching itself across resolutions. It is a *full
+    width at half maximum* rather than a true radius — `sigma_for_size`
+    divides by 2.355 — which is what makes "a 28px halation" mean the size a
+    user reads off the result. The name is the one on the node input and in
+    every saved LOOK, so it stays.
     """
     if amount <= 0.0:
         return image
