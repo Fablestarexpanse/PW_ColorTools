@@ -1,25 +1,25 @@
 """Where the user's saved work goes, and what their filenames are allowed to be.
 
-Looks and palettes are saved the same way and for the same reason — they are
-the user's work, so they belong in ComfyUI's output folder where they survive
-updating or reinstalling this pack. That shared reasoning had two
-implementations: `look_io` and `palette_io` each carried their own copy of the
-`folder_paths` shim, the sanitiser regex, the sanitiser itself and the
-newest-first listing.
+Looks and palettes both belong in ComfyUI's output folder rather than the pack
+folder: they are the user's work and must survive updating or reinstalling this
+node pack.
 
-Four copied helpers is bad; a copied *security* helper is worse. `safe_name`
-strips path separators rather than escaping them, and a policy that exists
-twice is a policy nothing enforces for the third module that wants it. So it
-lives here once.
+Three rules live here because all of them are the kind that must hold
+everywhere or not at all:
 
-The two copies had also drifted where it is easiest to drift unnoticed: the
-second argument meant a dotted suffix (``".look"``) in one and a bare extension
-(``"json"``) in the other. This module takes the bare extension.
+* `safe_name` strips path separators rather than escaping them. The value comes
+  from a text widget, and the only correct handling of a traversal attempt is
+  for the result not to be a path.
+* `checked_name` is the containment gate for loading. For files the pack
+  enumerates the valid set is known, which is a stronger guarantee than
+  sanitising a string.
+* `write_atomic` writes beside the target and renames, so an interrupted save
+  cannot destroy the file it was replacing.
 
-Directory *creation* is deliberately not part of `user_dir`. Both node schemas
-list saved files while ComfyUI builds them at startup, so a `look_dir()` that
-mkdir'd meant importing the pack wrote directories to disk before the user had
-saved anything. Reading does not create; saving does.
+`user_dir` deliberately does not create anything. Both node schemas list saved
+files while ComfyUI builds them at startup, so a directory-creating lookup meant
+importing the pack wrote to the user's disk before they had saved anything.
+Reading does not create; saving does.
 """
 
 from __future__ import annotations

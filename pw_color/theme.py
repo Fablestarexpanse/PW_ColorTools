@@ -1,9 +1,9 @@
 """Python mirror of the design system palette.
 
 ``web/src/theme.ts`` is the source of truth. This exists only because a few
-things are drawn server-side — the palette swatch strip, and later the scope
-renders — and they must match the node chrome exactly or the strip looks like it
-came from a different product.
+things are drawn server-side — the palette swatch strip and the scopes — and
+they must match the node chrome exactly, or what the node draws looks like it
+came from a different product than what surrounds it.
 
 ``tests/test_theme.py`` parses ``theme.ts`` and asserts these agree, so the two
 cannot drift. If you change a colour, change it there and this test will tell
@@ -11,6 +11,8 @@ you to change it here.
 """
 
 from __future__ import annotations
+
+__all__ = ["THEME", "CHANNEL", "PORT"]
 
 THEME: dict[str, str] = {
     "panel": "#1B1A20",

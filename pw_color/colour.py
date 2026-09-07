@@ -36,7 +36,21 @@ __all__ = [
     "hex_to_srgb",
     "srgb_to_hex",
     "with_alpha_of",
+    "smoothstep",
 ]
+
+def smoothstep(edge0: float, edge1: float, x: torch.Tensor) -> torch.Tensor:
+    """Hermite ease between two edges, clamped outside them.
+
+    C1 continuous, which is the whole reason both callers want it: a
+    piecewise-linear ramp would put a kink in the transfer curve, and a kink is
+    the one thing a colour lattice cannot represent. Grain uses it for the
+    tonal windows and the black/white falloff; look.py for the HSL and tone
+    bands. It was written out in both, with different parameter names.
+    """
+    t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
 
 def with_alpha_of(rgb: torch.Tensor, original: torch.Tensor) -> torch.Tensor:
     """Reattach ``original``'s alpha to a processed RGB tensor.

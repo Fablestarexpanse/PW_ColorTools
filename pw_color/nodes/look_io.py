@@ -134,7 +134,7 @@ class PW_LookIO(io.ComfyNode):
 
         out_image = image
         if image is not None:
-            lut_ops = [op.to_dict() for op in resolved.ops if op.enabled and op.lut_safe]
+            lut_ops = [op.to_dict() for op in resolved.bakeable()]
             if lut_ops:
                 out_image = Lattice.from_fn(build_sample_fn(lut_ops), lut_size).apply(image)
             if not complete:

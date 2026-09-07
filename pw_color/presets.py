@@ -1,23 +1,17 @@
 """Shipped presets, loaded the same way for every node that has them.
 
-PW Look and PW Curves each had their own copy of this — same `lru_cache`, same
-`json.loads`, same bare `except (OSError, ValueError): return {}` — and the
-copies had already disagreed on the two things that matter:
+Three rules, applied identically to PW Look's presets and PW Curves':
 
-* **Where 'none' comes from.** Curves synthesised it in code; Look expected the
-  JSON to ship it, and carried a defensive ``or ["none"]`` for when it didn't.
-  So the sentinel existed twice, in two layers, with a fallback papering over
-  the gap. Here the code owns it: 'none' is always first and always present,
-  whether or not the file describes it.
-* **What an unknown preset does.** Curves raised; Look silently graded nothing.
-  A typo'd preset id in a saved workflow is a mistake either way, and one of the
-  two behaviours told the user about it. Now both do.
+* **The code owns 'none'.** It is always the first option, whether or not the
+  file describes it, so the sentinel exists in one layer rather than two.
+* **An unknown id raises**, naming the node. The alternative is a node that
+  quietly grades nothing and a user who cannot tell why.
+* **Only successful reads are cached.** A malformed file costs the user their
+  presets, not their node — and fixing it recovers without a restart, which is
+  what an `lru_cache` around the read could not do.
 
-The third shared bug was the caching. A read failure was cached forever by
-`lru_cache` and never logged, so a malformed `presets.json` meant an empty
-preset list for the life of the process with nothing in the log to say why.
-Successes are still cached — this runs during schema construction, which the
-frontend hits often — but failures are not, and they are logged once.
+Successes are cached because this runs during schema construction, which the
+frontend hits often.
 """
 
 from __future__ import annotations
@@ -29,10 +23,16 @@ from typing import Any
 
 __all__ = ["NONE", "load_presets", "preset_ids", "preset_name", "resolve_preset"]
 
-log = logging.getLogger(__name__)
+_log = logging.getLogger("PW_Color")
+
+#: Schema version of a presets file. Checked like LOOK_SCHEMA and
+#: PALETTE_SCHEMA are, so a file from a newer build says so rather than
+#: silently losing whatever it added.
+PRESETS_SCHEMA = 1
 
 #: The "leave it alone" entry every preset combo carries as its first option.
 NONE = "none"
+
 
 class _PresetCache:
     """Successful reads, and the files already complained about.
@@ -54,26 +54,31 @@ class _PresetCache:
 _presets = _PresetCache()
 
 
-def _read(path: Path) -> dict[str, dict]:
-    """Parse a presets file into ``{id: preset}``, 'none' first.
+def _read(path: Path) -> tuple[dict[str, dict], bool]:
+    """Parse a presets file into ``({id: preset}, read_succeeded)``, 'none' first.
 
-    Returns an empty mapping on failure, having said so in the log — a missing
-    or malformed preset file should cost the user their presets, not their node.
+    On failure the mapping holds 'none' alone — never empty, because 'none' is
+    the code's to supply — and the flag is False so the caller knows not to
+    cache it. A missing or malformed preset file should cost the user their
+    presets, not their node.
     """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        schema = int(data.get("schema", PRESETS_SCHEMA))
+        if schema > PRESETS_SCHEMA:
+            raise ValueError(f"presets use schema {schema}, this build understands up to {PRESETS_SCHEMA}")
         entries = list(data["presets"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
         if path not in _presets.warned:
             _presets.warned.add(path)
-            log.warning("PW Color: could not read presets from %s (%s); continuing with none only", path, exc)
-        return {NONE: {"id": NONE, "name": "None", "params": {}}}
+            _log.warning("PW Color: could not read presets from %s (%s); continuing with none only", path, exc)
+        return {NONE: {"id": NONE, "name": "None", "params": {}}}, False
 
     presets = {NONE: {"id": NONE, "name": "None", "params": {}}}
     for entry in entries:
         if isinstance(entry, dict) and "id" in entry:
             presets[str(entry["id"])] = entry
-    return presets
+    return presets, True
 
 
 def load_presets(path: Path) -> dict[str, dict]:
@@ -81,11 +86,12 @@ def load_presets(path: Path) -> dict[str, dict]:
     cached = _presets.good.get(path)
     if cached is not None:
         return cached
-    presets = _read(path)
-    # Only a real read earns a cache entry; a failure should recover once the
-    # user fixes the file, without needing a restart.
-    if path not in _presets.warned:
+    presets, ok = _read(path)
+    if ok:
+        # A success caches, and clears the complaint so the *next* failure is
+        # reported rather than swallowed as already-known.
         _presets.good[path] = presets
+        _presets.warned.discard(path)
     return presets
 
 
@@ -95,7 +101,10 @@ def preset_ids(path: Path) -> list[str]:
 
 
 def resolve_preset(path: Path, preset: str, node: str) -> dict[str, Any]:
-    """The parameters for ``preset``, or ``{}`` for 'none'.
+    """The whole preset record for ``preset``, or ``{}`` for 'none'.
+
+    The record, not its ``params``: callers want the name too, and returning
+    half of it would mean a second lookup for the other half.
 
     Raises on an id that is not in the file, because the alternative is a node
     that quietly does nothing and a user who cannot tell why.

@@ -27,6 +27,7 @@ from typing import Any
 import torch
 
 from . import colour
+from .colour import smoothstep
 from .blend import blend_pixels
 
 __all__ = [
@@ -60,19 +61,14 @@ _BAND_HALF = 0.36
 _TONE_CENTRES = (0.0, 0.33, 0.67, 1.0)
 
 
-def _smoothstep(e0: float, e1: float, x: torch.Tensor) -> torch.Tensor:
-    t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0)
-    return t * t * (3.0 - 2.0 * t)
-
-
 def _band(x: torch.Tensor, centre: float, half: float = _BAND_HALF) -> torch.Tensor:
     """A smooth bump peaking at ``centre``, reaching zero ``half`` away.
 
     C1 continuous on purpose: a piecewise-linear tent would put a kink in the
     transfer curve, and a kink is the one thing a lattice cannot represent.
     """
-    rising = _smoothstep(centre - half, centre, x)
-    falling = 1.0 - _smoothstep(centre, centre + half, x)
+    rising = smoothstep(centre - half, centre, x)
+    falling = 1.0 - smoothstep(centre, centre + half, x)
     return rising * falling
 
 
@@ -197,7 +193,7 @@ def op_hsl(rgb: torch.Tensor, p: dict[str, Any]) -> torch.Tensor:
         if band is None:
             continue
         dist = _hue_distance(h, centre).abs()
-        w = (1.0 - _smoothstep(0.0, half * 1.6, dist)) * chroma_gate
+        w = (1.0 - smoothstep(0.0, half * 1.6, dist)) * chroma_gate
         hue_amt = float(band.get("hue", 0.0))
         sat_amt = float(band.get("sat", 0.0))
         lum_amt = float(band.get("lum", 0.0))

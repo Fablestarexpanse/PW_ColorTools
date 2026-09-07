@@ -49,9 +49,7 @@ def render_strip(
     than to 100%, because a five-colour palette where nothing exceeds 30% would
     otherwise render as five near-invisible slivers.
     """
-    # Pillow and numpy are ComfyUI runtime dependencies rather than ours, and
-    # only the rendering paths need them. Deferred so importing the pack stays
-    # cheap and a colour-only use never touches them.
+    # Deferred: see the note on the first such import in this module.
     import numpy as np
     from PIL import Image, ImageDraw
 

@@ -24,8 +24,7 @@ from typing import Literal
 
 import torch
 
-from . import colour as _colour
-from .colour import hex_to_srgb, srgb_to_hex
+from .colour import hex_to_srgb, srgb_to_hex, srgb_to_oklab
 from .types import Palette, Swatch
 from .userdata import PARSE_FAILURES, checked_name, newest_first, safe_name as _safe_name, write_atomic
 from .userdata import user_dir
@@ -157,7 +156,7 @@ def _swatches_from_hex(hexes: list[str], lossy: bool) -> Palette:
     n = max(1, len(hexes))
     colors = []
     for h in hexes:
-        lab = _colour.srgb_to_oklab(torch.tensor(hex_to_srgb(h)))
+        lab = srgb_to_oklab(torch.tensor(hex_to_srgb(h)))
         colors.append(
             Swatch(
                 hex=srgb_to_hex(hex_to_srgb(h)),

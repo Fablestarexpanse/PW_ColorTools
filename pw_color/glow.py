@@ -7,8 +7,10 @@ it on a separate node would mean wiring two nodes to express one idea.
 
 The cost is stated rather than hidden: the moment glow is non-zero, the node's
 LOOK is no longer LUT-exportable and the UI badges the section `render only`.
-PW Optics will grow the full halation treatment later; this is the cheap,
-always-useful half.
+
+Neutral bloom, deliberately. PW Optics has the red-biased halation, which is a
+different effect with a different physical story; both are four lines over the
+shared bright pass in `bloom.py`.
 """
 
 from __future__ import annotations
@@ -38,7 +40,5 @@ def apply_glow(
     ``warmth`` biases the glow toward amber, which is what a real lens does and
     what stops the effect reading as digital haze.
     """
-    # Only the tint is specific to glow: warmth biases it toward amber, which
-    # is what a real lens does and what stops the effect reading as digital haze.
     tint = (1.0 + 0.35 * warmth, 1.0, 1.0 - 0.45 * warmth) if warmth != 0.0 else None
     return bright_pass_bloom(image, amount, radius, threshold, tint)

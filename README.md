@@ -424,7 +424,7 @@ Clone into `ComfyUI/custom_nodes` and restart:
 git clone https://github.com/Fablestarexpanse/PW_ColorTools.git
 ```
 
-No dependencies beyond torch, numpy and Pillow — all of which ComfyUI already
+No dependencies beyond torch, numpy, Pillow and aiohttp — all of which ComfyUI already
 has. The web bundle is committed, so a plain clone works with no node toolchain.
 
 **Requires** ComfyUI 0.27+ / frontend 1.40+. Developed and tested against

@@ -110,7 +110,7 @@ def bake_cube(look: Look, size: int = DEFAULT_SIZE, title: str = "") -> str:
     expressed in a lattice at all. Use :func:`export_report` to tell the user
     what was left behind.
     """
-    ops = [op.to_dict() for op in look.ops if op.enabled and op.lut_safe]
+    ops = [op.to_dict() for op in look.bakeable()]
     lattice = Lattice.from_fn(build_sample_fn(ops), size, encoding=None)
     return lattice.to_cube(title=title or look.name or "PW Color")
 
@@ -121,6 +121,6 @@ def export_report(look: Look) -> tuple[bool, list[str], list[str]]:
     Returned rather than printed so the node can put it in an output string and
     the UI can badge it, instead of it vanishing into a server log nobody reads.
     """
-    included = [op.type for op in look.ops if op.enabled and op.lut_safe]
-    dropped = [op.type for op in look.ops if op.enabled and not op.lut_safe]
+    included = [op.type for op in look.bakeable()]
+    dropped = [op.type for op in look.render_only()]
     return (not dropped, included, dropped)

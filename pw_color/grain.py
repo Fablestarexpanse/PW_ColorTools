@@ -33,7 +33,7 @@ import torch
 
 from .blend import blend_pixels
 from .blur import gaussian_blur, sigma_for_size
-from .colour import luma_bt709, srgb_to_linear, with_alpha_of
+from .colour import luma_bt709, smoothstep, srgb_to_linear, with_alpha_of
 
 __all__ = [
     "GRAIN_BLEND_MODES",
@@ -58,11 +58,6 @@ GRAIN_BLEND_MODES: tuple[str, ...] = get_args(GrainBlendMode)
 #: texturing it. A short smooth ramp fixes both without gutting the shadows
 #: control, which still governs everything above it.
 EDGE_FALLOFF = 0.04
-
-
-def _smoothstep(edge0: float, edge1: float, x: torch.Tensor) -> torch.Tensor:
-    t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0)
-    return t * t * (3.0 - 2.0 * t)
 
 
 class TonalResponse:
@@ -90,12 +85,12 @@ class TonalResponse:
         # Perceptual position, so "midtones" means what a user points at.
         t = lum.clamp(0.0, 1.0).pow(1.0 / 2.2)
 
-        shadow = 1.0 - _smoothstep(0.0, 0.5, t)
-        highlight = _smoothstep(0.5, 1.0, t)
+        shadow = 1.0 - smoothstep(0.0, 0.5, t)
+        highlight = smoothstep(0.5, 1.0, t)
         mid = (1.0 - shadow - highlight).clamp(min=0.0)
 
         w = shadow * self.shadows + mid * self.midtones + highlight * self.highlights
-        falloff = _smoothstep(0.0, EDGE_FALLOFF, t) * _smoothstep(0.0, EDGE_FALLOFF, 1.0 - t)
+        falloff = smoothstep(0.0, EDGE_FALLOFF, t) * smoothstep(0.0, EDGE_FALLOFF, 1.0 - t)
         return (w * falloff).unsqueeze(-1)
 
 

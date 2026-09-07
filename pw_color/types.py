@@ -164,6 +164,19 @@ class Look:
         """True when every enabled op can be baked into a ``.cube``."""
         return all(op.lut_safe for op in self.ops if op.enabled)
 
+    def bakeable(self) -> list["LookOp"]:
+        """The ops a lattice can carry: enabled, and flagged LUT-safe.
+
+        One definition, because .cube export, the export report and PW Look
+        I/O's applied image all need it and had each written out the same
+        two-clause filter.
+        """
+        return [op for op in self.ops if op.enabled and op.lut_safe]
+
+    def render_only(self) -> list["LookOp"]:
+        """The ops a lattice cannot carry — what a .cube export has to drop."""
+        return [op for op in self.ops if op.enabled and not op.lut_safe]
+
     def to_json(self) -> str:
         return canonical_json(self.to_dict())
 

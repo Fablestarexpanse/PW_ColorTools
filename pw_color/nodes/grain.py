@@ -28,7 +28,6 @@ from ..paths import GRAIN_DIR
 from ..preview_cache import store_input_for_node, store_output_for_node
 from ..types import Look, LookOp
 
-PLATES_DIR = GRAIN_DIR
 PLATE_SUFFIXES = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp")
 
 
@@ -40,9 +39,9 @@ def plate_names() -> tuple[str, ...]:
     A user adding a plate needs a ComfyUI restart, which is the same contract as
     adding a checkpoint.
     """
-    if not PLATES_DIR.is_dir():
+    if not GRAIN_DIR.is_dir():
         return ("none",)
-    names = sorted(p.name for p in PLATES_DIR.iterdir() if p.suffix.lower() in PLATE_SUFFIXES)
+    names = sorted(p.name for p in GRAIN_DIR.iterdir() if p.suffix.lower() in PLATE_SUFFIXES)
     return ("none", *names)
 
 
@@ -50,7 +49,7 @@ def _load_plate(name: str) -> torch.Tensor:
     """Load a shipped plate as ``[1,H,W,3]`` in sRGB-encoded [0,1].
 
     ``name`` is checked against the list the combo offers rather than joined
-    onto PLATES_DIR as given. It arrives from a widget, and a widget value comes
+    onto GRAIN_DIR as given. It arrives from a widget, and a widget value comes
     back from whatever is in the saved workflow JSON — the sibling loaders in
     look_io and palette_io both sanitise for the same reason.
     """
@@ -62,9 +61,9 @@ def _load_plate(name: str) -> torch.Tensor:
     import numpy as np
     from PIL import Image
 
-    path = PLATES_DIR / name
+    path = GRAIN_DIR / name
     if not path.is_file():
-        raise ValueError(f"PW Grain: grain plate {name!r} not found in {PLATES_DIR}")
+        raise ValueError(f"PW Grain: grain plate {name!r} not found in {GRAIN_DIR}")
     try:
         with Image.open(path) as im:
             arr = np.asarray(im.convert("RGB"), dtype=np.float32) / 255.0

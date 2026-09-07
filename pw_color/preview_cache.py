@@ -185,9 +185,7 @@ def _encode_crop(image: torch.Tensor) -> bytes:
     is precisely what grain *is*. A lossy crop would show the user a softer,
     finer grain than the one being rendered.
     """
-    # Pillow and numpy are ComfyUI runtime dependencies rather than ours, and
-    # only the rendering paths need them. Deferred so importing the pack stays
-    # cheap and a colour-only use never touches them.
+    # Deferred: see the note on the first such import in this module.
     from PIL import Image
 
     img = image[0, ..., :3].float().clamp(0, 1)
