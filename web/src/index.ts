@@ -2,7 +2,7 @@
  * Extension entry point. Everything the pack adds to the frontend starts here.
  */
 
-import { app, warnIfUnsupported } from './comfy.ts';
+import { MODERN_NODES_NOTICE, app, modernNodesActive, warnIfModernNodes, warnIfUnsupported } from './comfy.ts';
 import { PW } from './theme.ts';
 import { registerCurves } from './nodes/curves.ts';
 import { registerGrain } from './nodes/grain.ts';
@@ -50,6 +50,7 @@ app.registerExtension({
   name: 'pw.color',
   async setup() {
     warnIfUnsupported();
+    warnIfModernNodes();
     registerPortColours();
   },
   async beforeRegisterNodeDef(nodeType: any, nodeData: any) {
@@ -58,6 +59,18 @@ app.registerExtension({
     // anything?" never has to be answered by reading a dozen sliders. Nodes
     // with their own canvas state add an `after` hook in their own module.
     addResetMenu(nodeType);
+  },
+  nodeCreated(node: any) {
+    if (!PW_NODES.includes(node?.type) || !modernNodesActive()) return;
+    if (typeof node.addDOMWidget !== 'function') return;
+    // In the DOM renderer the canvas panels are invisible, so the node would be
+    // a tall blank. Say why, on the node, where the panel would have been.
+    const el = document.createElement('div');
+    el.textContent = MODERN_NODES_NOTICE;
+    el.style.cssText =
+      'padding:8px 10px;font:12px/1.4 system-ui,sans-serif;color:#E0A44C;' +
+      'background:#1F1B2E;border:1px solid #3A3450;border-radius:6px;white-space:normal;';
+    node.addDOMWidget('pw_modern_nodes_notice', 'div', el, { serialize: false, hideOnZoom: false });
   },
 });
 

@@ -5,7 +5,7 @@ rather than broadcast colourists. From **Promptwaffle / BotWaffle Studio**.
 
 ![Before and after](docs/images/before_after.png)
 
-> **Status: feature complete for v1.** All eight nodes are built and tested:
+> **Status: 2.0.** All eight nodes are built and tested:
 > PW Look, PW Curves, PW Grain, PW Optics, PW Match Source, PW Palette,
 > PW Scopes and PW Look I/O.
 
@@ -428,7 +428,15 @@ No dependencies beyond torch, numpy, Pillow and aiohttp — all of which ComfyUI
 has. The web bundle is committed, so a plain clone works with no node toolchain.
 
 **Requires** ComfyUI 0.27+ / frontend 1.40+. Developed and tested against
-0.29.2 / 1.47.11.
+ComfyUI 0.29.x with frontend 1.47.11 and 1.49.6.
+
+**Node design.** The pack draws its panels — curve editor, previews, preset
+strip, colour mixer — on the LiteGraph canvas. Frontend 1.49 added an opt-in
+**Modern Node Design (Nodes 2.0)** that renders nodes as DOM elements and does
+not paint canvas panels, so with it on every PW node is blank below its
+sliders. The nodes still run; they just cannot show you anything. The pack
+warns on load and puts the reason on each node. Until the panels are ported to
+that renderer, keep *Settings → Nodes 2.0 → Modern Node Design* off.
 
 ---
 
@@ -438,9 +446,21 @@ has. The web bundle is committed, so a plain clone works with no node toolchain.
 python -m pytest tests -q
 ```
 
+The node tests need ComfyUI importable. `tests/conftest.py` finds it in the
+usual `custom_nodes` layout or a sibling checkout, or from `COMFYUI_PATH`; it
+prints which at the top of the run, and says so if it found nothing — in which
+case a third of the suite skips while still reporting green, so look for that
+line. Run with ComfyUI's own interpreter if your system Python's `av` package
+is not the one ComfyUI's `comfy_api` expects.
+
 ```bash
-cd web && npm install && npm run typecheck && npm run build
+cd web && npm install && npm run typecheck && npm run build && npm test
 ```
+
+`npm test` runs the frontend's own tests under node's built-in runner — no
+bundler, no framework. Node 22.6+ is needed for `--experimental-strip-types`,
+which the parity harnesses use too. CI runs the whole suite and fails if any
+test skipped that was not expected to.
 
 The test suite includes a cross-language parity harness: it runs the TypeScript
 colour maths under bare `node --experimental-strip-types` and asserts it agrees

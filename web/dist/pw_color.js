@@ -19,6 +19,29 @@ function frontendVersion() {
   const m = raw.match(/(\d+)\.(\d+)\.(\d+)/);
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
+function modernNodesActive() {
+  const lg = globalThis.LiteGraph;
+  if (lg && typeof lg.vueNodesMode === "boolean") return lg.vueNodesMode;
+  try {
+    return app.extensionManager?.setting?.get?.("Comfy.VueNodes.Enabled") === true;
+  } catch {
+    return false;
+  }
+}
+var MODERN_NODES_NOTICE = 'PW Color panels need the Classic node design. Settings \u2192 Nodes 2.0 \u2192 turn off "Modern Node Design".';
+function warnIfModernNodes() {
+  if (!modernNodesActive()) return;
+  console.warn(`[PW Color] ${MODERN_NODES_NOTICE}`);
+  try {
+    app.extensionManager?.toast?.add?.({
+      severity: "warn",
+      summary: "PW Color",
+      detail: MODERN_NODES_NOTICE,
+      life: 12e3
+    });
+  } catch {
+  }
+}
 function warnIfUnsupported() {
   const v = frontendVersion();
   if (!v) return;
@@ -2946,11 +2969,20 @@ app.registerExtension({
   name: "pw.color",
   async setup() {
     warnIfUnsupported();
+    warnIfModernNodes();
     registerPortColours();
   },
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (!PW_NODES.includes(nodeData?.name)) return;
     addResetMenu(nodeType);
+  },
+  nodeCreated(node) {
+    if (!PW_NODES.includes(node?.type) || !modernNodesActive()) return;
+    if (typeof node.addDOMWidget !== "function") return;
+    const el = document.createElement("div");
+    el.textContent = MODERN_NODES_NOTICE;
+    el.style.cssText = "padding:8px 10px;font:12px/1.4 system-ui,sans-serif;color:#E0A44C;background:#1F1B2E;border:1px solid #3A3450;border-radius:6px;white-space:normal;";
+    node.addDOMWidget("pw_modern_nodes_notice", "div", el, { serialize: false, hideOnZoom: false });
   }
 });
 registerCurves();

@@ -86,6 +86,45 @@ export function frontendVersion(): number[] | null {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
 
+/**
+ * Whether the host is drawing nodes as DOM elements ("Modern Node Design",
+ * frontend 1.49+, opt-in) rather than on the LiteGraph canvas.
+ *
+ * Every panel this pack draws — the curve editor, the previews, the preset
+ * strip, the colour mixer, the chips — goes through `onDrawForeground`, which
+ * the DOM renderer does not paint. The nodes still execute correctly; they just
+ * look empty. Checked at setup and again per node, because the setting can be
+ * flipped without a reload.
+ */
+export function modernNodesActive(): boolean {
+  const lg = (globalThis as any).LiteGraph;
+  if (lg && typeof lg.vueNodesMode === 'boolean') return lg.vueNodesMode;
+  try {
+    return (app as any).extensionManager?.setting?.get?.('Comfy.VueNodes.Enabled') === true;
+  } catch {
+    return false;
+  }
+}
+
+export const MODERN_NODES_NOTICE =
+  'PW Color panels need the Classic node design. Settings → Nodes 2.0 → turn off "Modern Node Design".';
+
+/** Tell the user once, somewhere they will see it, why every PW node is blank. */
+export function warnIfModernNodes(): void {
+  if (!modernNodesActive()) return;
+  console.warn(`[PW Color] ${MODERN_NODES_NOTICE}`);
+  try {
+    (app as any).extensionManager?.toast?.add?.({
+      severity: 'warn',
+      summary: 'PW Color',
+      detail: MODERN_NODES_NOTICE,
+      life: 12000,
+    });
+  } catch {
+    /* a toast is a courtesy; the console line above is the record */
+  }
+}
+
 /** Warn once if the host is older than we have tested. Never throw: a warning
  *  the user can act on beats a pack that refuses to load. */
 export function warnIfUnsupported(): void {
