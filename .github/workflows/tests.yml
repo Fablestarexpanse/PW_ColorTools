@@ -93,23 +93,24 @@ jobs:
         #
         # The CUDA device tests are the honest gap: this runner has no GPU, so
         # they skip here and only ever run on a developer machine that has one.
-        # They are allowed by name rather than by a wildcard, so a *new* skip in
-        # that file still fails.
+        # They are recognised by their skip reason, the one string the skipif
+        # marker in tests/test_devices.py emits, so a skip in that file for any
+        # other reason still fails.
         run: |
           python - <<'PY'
           import sys, xml.etree.ElementTree as ET
           root = ET.parse("results.xml").getroot()
-          skipped = [
-              f'{c.get("classname")}::{c.get("name")}'
+          skipped = {
+              f'{c.get("classname")}::{c.get("name")}': (c.find("skipped").get("message") or "")
               for c in root.iter("testcase")
               if c.find("skipped") is not None
-          ]
+          }
           expected = {
               "tests.test_audit::test_pointwise_ops_do_not_leak_between_frames[match source]"
           }
           # No GPU on a hosted runner; these cannot run here and must not be
           # silently counted as passing either.
-          cuda = [n for n in skipped if n.startswith("tests.test_devices::") and "cuda" in n.lower()]
+          cuda = [n for n, why in skipped.items() if why == "no CUDA device"]
           expected |= set(cuda)
           print(f"{len(cuda)} CUDA test(s) skipped: no GPU on this runner.")
           unexpected = sorted(set(skipped) - expected)
@@ -117,6 +118,7 @@ jobs:
               print("These tests skipped, which in CI means a precondition is missing:")
               for name in unexpected:
                   print("  ", name)
+                  print(f"::error title=unexpected skip::{name}: {skipped[name]}")
               sys.exit(1)
           print(f"{len(skipped)} expected skip(s), no unexpected ones.")
           PY
