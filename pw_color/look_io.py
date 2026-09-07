@@ -19,7 +19,7 @@ from .lattice import DEFAULT_SIZE, Lattice
 from .ops import build_sample_fn
 from .paths import LOOKS_DIR
 from .types import Look
-from .userdata import newest_first, safe_name as _safe_name, write_atomic
+from .userdata import PARSE_FAILURES, checked_name, newest_first, safe_name as _safe_name, write_atomic
 from .userdata import user_dir
 
 __all__ = [
@@ -90,13 +90,16 @@ def load_look(filename: str) -> Look:
     User first so that saving a look under a shipped name overrides it, which
     is what someone editing a preset expects to happen.
     """
-    name = Path(filename).name
-    if Path(name).suffix.lower() != ".look":
-        raise ValueError(f"{filename!r} is not a .look file")
+    name = checked_name(filename, list_saved(), "look")
     for directory in (look_dir(), shipped_dir()):
         path = directory / name
         if path.is_file():
-            return Look.from_json(path.read_text(encoding="utf-8"))
+            try:
+                return Look.from_json(path.read_text(encoding="utf-8"))
+            except PARSE_FAILURES as exc:
+                # Same contract as the palette readers: an unreadable file is a
+                # ValueError naming it, not a raw TypeError from inside from_dict.
+                raise ValueError(f"could not read {name!r} as a .look: {exc}") from exc
     raise ValueError(f"look {filename!r} not found in {look_dir()} or {shipped_dir()}")
 
 

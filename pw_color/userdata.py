@@ -26,11 +26,28 @@ from __future__ import annotations
 
 import os
 import re
+import struct
 from pathlib import Path
 
 from .paths import PACK_ROOT
 
-__all__ = ["output_root", "user_dir", "safe_name", "newest_first", "write_atomic"]
+__all__ = [
+    "output_root",
+    "user_dir",
+    "safe_name",
+    "newest_first",
+    "write_atomic",
+    "PARSE_FAILURES",
+    "checked_name",
+]
+
+#: What a hand-written parser raises when the bytes are not what it expected.
+#:
+#: The readers signal "this file is not readable" with ValueError, but they
+#: parse binary and JSON by hand and can fail before getting that far. Those
+#: escaped as struct.error or AttributeError — exceptions that say nothing about
+#: which file was bad, and that a caller guarding a load would not catch.
+PARSE_FAILURES = (struct.error, IndexError, KeyError, TypeError, AttributeError, UnicodeDecodeError)
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9 ._-]")
 
@@ -98,3 +115,26 @@ def write_atomic(path: Path, data: bytes) -> Path:
         tmp.unlink(missing_ok=True)
         raise
     return path
+
+
+def checked_name(filename: str, offered: list[str], kind: str) -> str:
+    """The one containment rule for loading a user-named file.
+
+    Every loader in the pack was doing this differently: one took the basename
+    and checked the suffix, one took the basename and checked the extension
+    against a table, one checked membership of the list its combo offers. Only
+    the third is actually a containment check — for files the pack itself
+    enumerates, the valid set is *known*, which is a stronger guarantee than
+    sanitising a string and hoping.
+
+    The value arrives from a widget, and a widget value is whatever the saved
+    workflow JSON says, so it is never trusted.
+    """
+    name = Path(filename).name
+    if name not in offered:
+        available = ", ".join(offered[:6]) or "none"
+        raise ValueError(
+            f"{kind} {filename!r} is not available. Saved {kind}s: {available}"
+            + (" ..." if len(offered) > 6 else "")
+        )
+    return name

@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from pw_color.lattice import DEFAULT_SIZE, Lattice
@@ -188,3 +189,23 @@ def test_digest_is_stable_and_discriminating():
     c = Lattice.from_fn(build_sample_fn([{"type": "saturation", "params": {"amount": 1.3}}]))
     assert a.digest() == b.digest()
     assert a.digest() != c.digest()
+
+
+@pytest.mark.parametrize(
+    "text,message",
+    [
+        ("LUT_3D_SIZE\n", "no value"),
+        ("DOMAIN_MIN\n", "no value"),
+        ("LUT_3D_SIZE two\n", "not a number"),
+        ("0.0 0.0 0.0\n", "no LUT_3D_SIZE"),
+        ("LUT_1D_SIZE 33\n", "1D"),
+    ],
+)
+def test_a_malformed_cube_is_always_a_valueerror(text: str, message: str):
+    """Every declared failure in this reader is a ValueError with a message.
+
+    A header keyword with no argument used to run off the end of its split and
+    escape as IndexError, which a caller guarding a load would not catch.
+    """
+    with pytest.raises(ValueError, match=message):
+        Lattice.from_cube(text)

@@ -167,14 +167,16 @@ def test_list_saved_ignores_unrelated_files(_tmp_palette_dir):
     assert list_saved() == ["real.json"]
 
 
-def test_loading_a_missing_palette_is_an_explicit_error():
-    with pytest.raises(ValueError, match="not found"):
+def test_loading_a_missing_palette_is_an_explicit_error(_tmp_palette_dir):
+    with pytest.raises(ValueError, match="not available"):
         load_palette("nope.json")
 
 
 def test_loading_a_non_palette_file_is_rejected(_tmp_palette_dir):
+    """Not offered by the node, so not loadable — the same gate as a missing
+    file, because both are names the node never listed."""
     (_tmp_palette_dir / "thing.md").write_text("x")
-    with pytest.raises(ValueError, match="not a palette"):
+    with pytest.raises(ValueError, match="not available"):
         load_palette("thing.md")
 
 

@@ -347,8 +347,17 @@ def _parse_cube(text: str) -> tuple[_CubeHeader, list[tuple[float, float, float]
         key = head.upper()
         if key == "LUT_1D_SIZE":
             raise ValueError("1D .cube files are not supported")
+        if key in ("LUT_3D_SIZE", "DOMAIN_MIN", "DOMAIN_MAX"):
+            # A keyword with no argument is a malformed file, not a data row.
+            # Without this it escaped as IndexError, outside the ValueError
+            # contract every other failure here keeps.
+            if not rest:
+                raise ValueError(f"{key} in .cube file has no value")
         if key == "LUT_3D_SIZE":
-            header.size = int(rest[0])
+            try:
+                header.size = int(rest[0])
+            except ValueError as exc:
+                raise ValueError(f"LUT_3D_SIZE is not a number: {rest[0]!r}") from exc
         elif key == "DOMAIN_MIN":
             header.domain_min = [float(v) for v in rest[:3]]
         elif key == "DOMAIN_MAX":

@@ -98,12 +98,27 @@ def test_list_saved_ignores_other_files(_tmp_look_dir):
     assert all(n.endswith(".look") for n in listed)
 
 
-def test_loading_missing_or_wrong_type_is_explicit(_tmp_look_dir):
-    with pytest.raises(ValueError, match="not found"):
+def test_loading_anything_not_on_offer_is_explicit(_tmp_look_dir):
+    """One gate, not two.
+
+    This used to distinguish "no such file" from "wrong extension" with two
+    different messages. Both are now the same refusal — the name is not one the
+    node offers — which is a containment check rather than a pair of guesses,
+    and it tells the user what *is* available instead.
+    """
+    with pytest.raises(ValueError, match="not available"):
         lio.load_look("nope.look")
+
     (_tmp_look_dir / "thing.cube").write_text("x")
-    with pytest.raises(ValueError, match="not a .look"):
+    with pytest.raises(ValueError, match="not available"):
         lio.load_look("thing.cube")
+
+
+def test_a_saved_look_loads_by_the_name_the_node_offers(_tmp_look_dir):
+    """The other half: the gate must not reject what the combo lists."""
+    lio.save_look(Look(name="Round trip"), "mine")
+    assert "mine.look" in lio.list_saved()
+    assert lio.load_look("mine.look").name == "Round trip"
 
 
 # -- shipped looks -----------------------------------------------------------
@@ -226,3 +241,13 @@ def test_cube_size_is_respected():
         assert f"LUT_3D_SIZE {size}" in lio.bake_cube(_mixed_look(), size=size)
 
 
+
+
+def test_a_corrupt_look_file_is_a_valueerror_naming_it(_tmp_look_dir):
+    """The same contract the palette readers keep. `Look.from_json` parses by
+    hand, so a file with the right shape and wrong types used to escape as a
+    TypeError from inside from_dict, saying nothing about which file was bad."""
+    bad = _tmp_look_dir / "broken.look"
+    bad.write_text('{"schema": 1, "ops": [{"type": "x", "strength": [1]}]}', encoding="utf-8")
+    with pytest.raises(ValueError, match="broken.look"):
+        lio.load_look("broken.look")

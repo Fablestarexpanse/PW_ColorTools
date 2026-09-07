@@ -110,7 +110,10 @@ class PW_LookIO(io.ComfyNode):
             lines.append(f"  - {op.type:<16} {flag}{state}")
 
         if save_as.strip():
-            lines.append(f"saved     {save_look(resolved, save_as)}")
+            try:
+                lines.append(f"saved     {save_look(resolved, save_as)}")
+            except OSError as exc:
+                lines.append(f"ERROR     could not save {save_as}: {exc}")
 
         if export_cube.strip():
             path = writable_dir() / safe_name(export_cube, "cube")

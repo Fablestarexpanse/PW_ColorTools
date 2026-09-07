@@ -27,7 +27,7 @@ import torch
 from . import colour as _colour
 from .colour import hex_to_srgb, srgb_to_hex
 from .types import Palette, Swatch
-from .userdata import newest_first, safe_name as _safe_name, write_atomic
+from .userdata import PARSE_FAILURES, checked_name, newest_first, safe_name as _safe_name, write_atomic
 from .userdata import user_dir
 
 __all__ = [
@@ -236,7 +236,7 @@ def _from_txt(data: bytes) -> Palette:
 #: comes back as a list where a dict was expected. Those reached the user as
 #: a raw struct.error, KeyError or AttributeError, none of which says which
 #: file was bad — or is what a caller guarding a load would think to catch.
-_PARSE_FAILURES = (struct.error, IndexError, KeyError, TypeError, AttributeError, UnicodeDecodeError)
+_PARSE_FAILURES = PARSE_FAILURES
 
 
 def from_bytes(data: bytes, fmt: str) -> Palette:
@@ -258,9 +258,7 @@ def from_bytes(data: bytes, fmt: str) -> Palette:
 
 def load_palette(filename: str) -> Palette:
     """Load a saved palette by filename from the palettes folder."""
-    path = palette_dir() / Path(filename).name
-    if not path.is_file():
-        raise ValueError(f"palette {filename!r} not found in {palette_dir()}")
+    path = palette_dir() / checked_name(filename, list_saved(), "palette")
     fmt = path.suffix.lower().lstrip(".")
     if fmt not in PALETTE_FORMATS:
         raise ValueError(f"{filename!r} is not a palette file")

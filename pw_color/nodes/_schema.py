@@ -35,8 +35,14 @@ def look_in() -> io.Input:
 def image_and_look_outputs() -> list[io.Output]:
     """The graded image, and the grade stack that produced it.
 
-    Always in this order, so a user rewiring one node for another does not have
-    to check which socket is which.
+    Image first, so a user rewiring one node for another does not have to check
+    which socket is which. Every node that grades an image uses this.
+
+    PW Look I/O is the exception and declares its own outputs: it leads with the
+    LOOK because that is its subject, and its sockets cannot be reordered now
+    without silently reconnecting the wires in every saved workflow — links are
+    stored by slot index, so swapping two would move a wire rather than break
+    it, which is the worse failure.
     """
     return [
         io.Image.Output(display_name="image"),
