@@ -240,7 +240,7 @@ def _mirror_tile(x: torch.Tensor, reps_y: int, reps_x: int) -> torch.Tensor:
     return torch.cat(rows, dim=0)
 
 
-def _blend(base: torch.Tensor, signed: torch.Tensor, mode: str) -> torch.Tensor:
+def _blend(base: torch.Tensor, signed: torch.Tensor, mode: GrainBlendMode) -> torch.Tensor:
     """Composite a signed grain deviation over the base.
 
     Each mode maps the signed field to its own neutral. This matters: the
@@ -270,7 +270,7 @@ def apply_grain(
     tonal: TonalResponse,
     amount: float = 0.05,
     channel_amounts: tuple[float, float, float] = (1.0, 1.0, 1.15),
-    blend: str = "overlay",
+    blend: GrainBlendMode = "overlay",
     opacity: float = 1.0,
 ) -> torch.Tensor:
     """Composite a signed grain field onto an image.

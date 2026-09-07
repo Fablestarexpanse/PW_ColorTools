@@ -138,7 +138,9 @@ def _parade(image: torch.Tensor, h: int, w: int) -> torch.Tensor:
     return canvas
 
 
-def render_scope(image: torch.Tensor, mode: str = "all", width: int = 512, height: int = 256) -> torch.Tensor:
+def render_scope(
+    image: torch.Tensor, mode: ScopeMode = "all", width: int = 512, height: int = 256
+) -> torch.Tensor:
     """Render a scope for the first frame of ``[B,H,W,C]`` as ``[1,H,W,3]``."""
     if mode not in SCOPE_MODES:
         raise ValueError(f"unknown scope mode {mode!r}, expected one of {SCOPE_MODES}")

@@ -151,7 +151,7 @@ def extract_palette(
     ignore_near_black: bool = True,
     ignore_near_white: bool = True,
     weight_by_chroma: bool = False,
-    sort: str = "coverage",
+    sort: SortMode = "coverage",
 ) -> Palette:
     """Extract an ordered palette from ``[B,H,W,3]``. Only the first frame is used.
 

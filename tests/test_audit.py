@@ -491,6 +491,31 @@ def test_every_enumerated_vocabulary_is_a_literal_and_its_tuple_agrees():
         )
 
 
+def test_library_functions_from_a_closed_set_are_typed_as_that_set():
+    """The same rule one layer down.
+
+    Narrowing only the node signatures left the library functions they call
+    still taking `str`, so the alias stopped at the door.
+    """
+    import inspect
+
+    from pw_color import blend, grain, palette, scopes
+
+    expected = {
+        (palette.extract_palette, "sort", "SortMode"),
+        (scopes.render_scope, "mode", "ScopeMode"),
+        (grain.apply_grain, "blend", "GrainBlendMode"),
+        (blend.blend_pixels, "mode", "BlendMode"),
+        (blend.composite, "mode", "BlendMode"),
+    }
+    for fn, param, alias in sorted(expected, key=lambda e: (e[0].__name__, e[1])):
+        annotation = inspect.signature(fn).parameters[param].annotation
+        assert annotation == alias, (
+            f"{fn.__module__}.{fn.__name__} types {param} as {annotation!r}, "
+            f"discarding the {alias} vocabulary defined in the same module"
+        )
+
+
 def test_node_inputs_from_a_closed_set_are_typed_as_that_set():
     """A combo input whose options come from a Literal should be annotated with
     it, not widened back to `str` on the way into execute()."""

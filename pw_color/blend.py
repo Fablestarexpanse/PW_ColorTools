@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import torch
 
-from .types import BLEND_MODES
+from .types import BLEND_MODES, BlendMode
 
 __all__ = ["blend_pixels", "composite", "BLEND_MODES"]
 
 
-def blend_pixels(base: torch.Tensor, layer: torch.Tensor, mode: str) -> torch.Tensor:
+def blend_pixels(base: torch.Tensor, layer: torch.Tensor, mode: BlendMode) -> torch.Tensor:
     """The blend-mode formula itself: no opacity, no clamp.
 
     Split out from :func:`composite` because two other callers want the maths
@@ -46,7 +46,9 @@ def blend_pixels(base: torch.Tensor, layer: torch.Tensor, mode: str) -> torch.Te
     raise ValueError(f"unknown blend mode {mode!r}, expected one of {BLEND_MODES}")
 
 
-def composite(base: torch.Tensor, layer: torch.Tensor, mode: str = "normal", opacity: float = 1.0) -> torch.Tensor:
+def composite(
+    base: torch.Tensor, layer: torch.Tensor, mode: BlendMode = "normal", opacity: float = 1.0
+) -> torch.Tensor:
     """Composite ``layer`` over ``base``. Both are sRGB-encoded in ``[0,1]``."""
     out = blend_pixels(base, layer, mode)
     if opacity < 1.0:
