@@ -2977,7 +2977,8 @@ app.registerExtension({
     addResetMenu(nodeType);
   },
   nodeCreated(node) {
-    if (!PW_NODES.includes(node?.type) || !modernNodesActive()) return;
+    const cls = node?.constructor?.comfyClass ?? node?.type;
+    if (!PW_NODES.includes(cls) || !modernNodesActive()) return;
     if (typeof node.addDOMWidget !== "function") return;
     const el = document.createElement("div");
     el.textContent = MODERN_NODES_NOTICE;

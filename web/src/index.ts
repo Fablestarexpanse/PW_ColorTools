@@ -61,7 +61,12 @@ app.registerExtension({
     addResetMenu(nodeType);
   },
   nodeCreated(node: any) {
-    if (!PW_NODES.includes(node?.type) || !modernNodesActive()) return;
+    // `node.type` is not set yet here: the host fires this from inside the
+    // constructor, and LiteGraph assigns the type afterwards. The class the
+    // node was registered under is on its constructor, which is what the
+    // host's own Markdown note reads too.
+    const cls = node?.constructor?.comfyClass ?? node?.type;
+    if (!PW_NODES.includes(cls) || !modernNodesActive()) return;
     if (typeof node.addDOMWidget !== 'function') return;
     // In the DOM renderer the canvas panels are invisible, so the node would be
     // a tall blank. Say why, on the node, where the panel would have been.
