@@ -9,7 +9,8 @@
  * outright breaks subgraph header buttons on frontend 1.4x.
  */
 
-import { type NodeLike, app, chainHandler, fetchPw, getWidget } from '../comfy.ts';
+import { fetchPw } from '../fetch.ts';
+import { type NodeLike, app, chainHandler, getWidget } from '../comfy.ts';
 import { PW } from '../theme.ts';
 import { CurveEditor, identityState, type ChannelId, type CurveEditorState } from '../canvas/curve_editor.ts';
 import { Preview } from '../canvas/preview.ts';
@@ -291,14 +292,14 @@ export function registerCurves(): void {
         });
 
         chainHandler(this, 'onMouseUp', function (this: NodeLike) {
-          const a = false;
-          const b = ui.editor.onPointerUp();
-          const c = ui.preview.onPointerUp();
-          if (a || b || c) this.setDirtyCanvas?.(true, true);
-          return a || b || c;
+          // Both must run, so they are called before the OR rather than in it.
+          const editor = ui.editor.onPointerUp();
+          const preview = ui.preview.onPointerUp();
+          const handled = editor || preview;
+          if (handled) this.setDirtyCanvas?.(true, true);
+          return handled;
         });
 
-        void loadHistogram(this, ui);
         return r;
       };
 

@@ -11,7 +11,8 @@
  * is the least-used control on a busy node.
  */
 
-import { type NodeLike, app, chainHandler, fetchPw, getWidget } from '../comfy.ts';
+import { fetchPw } from '../fetch.ts';
+import { type NodeLike, app, chainHandler, getWidget } from '../comfy.ts';
 import { BADGE, PW } from '../theme.ts';
 import { Preview } from '../canvas/preview.ts';
 import { Lattice, DEFAULT_SIZE } from '../core/lattice.ts';
@@ -82,18 +83,27 @@ const uis = new WeakMap<object, LookUI>();
 
 // -- presets ------------------------------------------------------------------
 
-let presetCache: Preset[] | null = null;
+let presets: Preset[] | null = null;
 
+/**
+ * The shipped presets, fetched once.
+ *
+ * Only a *successful* fetch is cached. The first call happens during node
+ * setup, which is exactly when a 404 behind a proxy or a server still coming up
+ * is most likely — and caching that emptiness left the preset strip blank for
+ * the life of the page with no way to retry. `pw_color/presets.py` documents
+ * the same bug on the Python side; this was the half still living.
+ */
 async function loadPresets(): Promise<Preset[]> {
-  if (presetCache) return presetCache;
+  if (presets) return presets;
   try {
     const res = await fetchPw('/pw_color/presets');
-    if (!res.ok) return (presetCache = []);
-    presetCache = (await res.json()).presets ?? [];
+    if (!res.ok) return [];
+    presets = (await res.json()).presets ?? [];
+    return presets ?? [];
   } catch {
-    presetCache = [];
+    return [];
   }
-  return presetCache!;
 }
 
 /**

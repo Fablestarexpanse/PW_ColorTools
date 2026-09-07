@@ -83,7 +83,7 @@ def _histogram(image: torch.Tensor, h: int, w: int, bins: int = 256) -> torch.Te
     return canvas
 
 
-def _waveform_channel(values: torch.Tensor, h: int, w: int, bins: int) -> torch.Tensor:
+def _waveform_channel(values: torch.Tensor, h: int, w: int) -> torch.Tensor:
     """Column-wise intensity distribution, as a ``[h, w]`` density map.
 
     ``values`` is ``[H, W]`` in ``[0,1]``. Each output column is a histogram of
@@ -117,7 +117,7 @@ def _waveform(image: torch.Tensor, h: int, w: int) -> torch.Tensor:
     canvas = _panel(h, w, dev, dt)
     _graticule(canvas)
     lum = luma_bt709(srgb_to_linear(image[0, ..., :3].clamp(0, 1))).clamp(0, 1).pow(1 / 2.2)
-    dens = _waveform_channel(lum, h, w, 256).to(dt)
+    dens = _waveform_channel(lum, h, w).to(dt)
     trace = _hex_tensor(CHANNEL["luma"], dev, dt).view(1, 1, 3)
     return (canvas + trace * dens.unsqueeze(-1)).clamp(max=1.0)
 
@@ -132,7 +132,7 @@ def _parade(image: torch.Tensor, h: int, w: int) -> torch.Tensor:
         x0 = i * (cw + gap)
         sub = _panel(h, cw, dev, dt)
         _graticule(sub)
-        dens = _waveform_channel(image[0, ..., i].clamp(0, 1), h, cw, 256).to(dt)
+        dens = _waveform_channel(image[0, ..., i].clamp(0, 1), h, cw).to(dt)
         trace = _hex_tensor(CHANNEL[key], dev, dt).view(1, 1, 3)
         canvas[:, x0 : x0 + cw, :] = (sub + trace * dens.unsqueeze(-1)).clamp(max=1.0)
     return canvas

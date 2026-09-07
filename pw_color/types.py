@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 
 __all__ = [
@@ -240,7 +240,3 @@ class Palette:
     @classmethod
     def from_json(cls, text: str) -> "Palette":
         return cls.from_dict(json.loads(text))
-
-
-def swatches_from_iterable(items: Iterable[dict[str, Any]]) -> list[Swatch]:
-    return [Swatch.from_dict(i) for i in items]

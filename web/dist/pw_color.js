@@ -1,9 +1,6 @@
 // src/comfy.ts
 import { app } from "/scripts/app.js";
 import { api } from "/scripts/api.js";
-function fetchPw(path) {
-  return api.fetchApi(path, { cache: "no-store" });
-}
 var MIN_FRONTEND = [1, 40, 0];
 function getWidget(node, name) {
   return node.widgets?.find((w) => w.name === name);
@@ -132,6 +129,12 @@ var BADGE = {
   render: { label: "render only", fill: PW.color.surface, text: PW.color.textMute },
   approx: { label: "preview approximate", fill: PW.color.surface, text: PW.color.warm }
 };
+
+// src/fetch.ts
+async function fetchPw(path) {
+  const { api: api2 } = await import("/scripts/api.js");
+  return api2.fetchApi(path, { cache: "no-store" });
+}
 
 // src/core/curve.ts
 var IDENTITY_POINTS = [
@@ -551,13 +554,6 @@ var CurveEditor = class {
     this.state = identityState();
     this.changed();
   }
-  applyPreset(preset) {
-    for (const k of ["luma", "r", "g", "b"]) {
-      const v = preset[k];
-      if (v) this.state[k] = v.map((p) => [p[0], p[1]]);
-    }
-    this.changed();
-  }
   changed() {
     this.onChange?.();
   }
@@ -913,15 +909,20 @@ var Renderer = class {
   }
 };
 var TexSource = class {
+  tex = null;
+  uploaded = false;
+  bitmap;
+  width;
+  height;
+  // Written out rather than declared as a constructor parameter property:
+  // node's strip-only type removal rejects those, and this module has to load
+  // under bare node for `web/test/preview.test.ts` — the same constraint the
+  // parity harnesses live under, and for the same reason.
   constructor(bitmap) {
     this.bitmap = bitmap;
     this.width = bitmap.width;
     this.height = bitmap.height;
   }
-  tex = null;
-  uploaded = false;
-  width;
-  height;
   texture(gl) {
     if (!this.tex) this.tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
@@ -1032,6 +1033,7 @@ var Preview = class _Preview {
       this.loadingOutput = false;
     }
   }
+  /** Whether there is anything to draw — and therefore anything to interact with. */
   get hasImage() {
     return this.source !== null || this.output !== null;
   }
@@ -1152,7 +1154,7 @@ var Preview = class _Preview {
    * to trigger by accident while looking around a zoomed image.
    */
   onPointerDown(x, y, r, shift, doubleClick) {
-    if (!this.source) return false;
+    if (!this.hasImage) return false;
     if (doubleClick) {
       this.resetView();
       return true;
@@ -1163,7 +1165,7 @@ var Preview = class _Preview {
     return true;
   }
   onPointerMove(x, y, r) {
-    if (!this.dragging || !this.source) return false;
+    if (!this.dragging || !this.hasImage) return false;
     if (this.dragging === "wipe") {
       this.wipe = Math.min(1, Math.max(0, (x - r.x) / r.w));
       return true;
@@ -1181,7 +1183,7 @@ var Preview = class _Preview {
   }
   /** Wheel zoom about the cursor, so the pixel under it stays put. */
   onWheel(x, y, r, delta) {
-    if (!this.source) return false;
+    if (!this.hasImage) return false;
     const before = this.view(r);
     const prev = this.zoom;
     this.zoom = Math.min(16, Math.max(1, this.zoom * (delta < 0 ? 1.15 : 1 / 1.15)));
@@ -1910,13 +1912,12 @@ function registerCurves() {
           return false;
         });
         chainHandler(this, "onMouseUp", function() {
-          const a = false;
-          const b = ui.editor.onPointerUp();
-          const c = ui.preview.onPointerUp();
-          if (a || b || c) this.setDirtyCanvas?.(true, true);
-          return a || b || c;
+          const editor = ui.editor.onPointerUp();
+          const preview = ui.preview.onPointerUp();
+          const handled = editor || preview;
+          if (handled) this.setDirtyCanvas?.(true, true);
+          return handled;
         });
-        void loadHistogram(this, ui);
         return r;
       };
       const onConfigure = nodeType.prototype.onConfigure;
@@ -1957,7 +1958,6 @@ function tonalWeight(t, shadows, midtones, highlights) {
 // src/nodes/spatial_preview.ts
 var M2 = PW.metrics;
 var HEADER_H2 = 18;
-var handles = /* @__PURE__ */ new WeakMap();
 function attachSpatialPreview(nodeType, opts) {
   const onCreated = nodeType.prototype.onNodeCreated;
   nodeType.prototype.onNodeCreated = function() {
@@ -1970,7 +1970,6 @@ function attachSpatialPreview(nodeType, opts) {
       const y = extraTop(n) + (opts.extra?.(n) ?? 0) + HEADER_H2 + 6;
       return { x, y, w, h: opts.height };
     };
-    handles.set(this, { preview, previewRect, extraTop });
     const panelHeight2 = () => (opts.extra?.(this) ?? 0) + HEADER_H2 + 6 + opts.height + M2.gapSection + M2.padding;
     fitPanel(this, panelHeight2(), opts.minWidth);
     const refresh = () => {
@@ -2160,17 +2159,17 @@ function refreshPreview(node) {
   ui.preview.digest = JSON.stringify(ops);
 }
 var uis2 = /* @__PURE__ */ new WeakMap();
-var presetCache = null;
+var presets = null;
 async function loadPresets() {
-  if (presetCache) return presetCache;
+  if (presets) return presets;
   try {
     const res = await fetchPw("/pw_color/presets");
-    if (!res.ok) return presetCache = [];
-    presetCache = (await res.json()).presets ?? [];
+    if (!res.ok) return [];
+    presets = (await res.json()).presets ?? [];
+    return presets ?? [];
   } catch {
-    presetCache = [];
+    return [];
   }
-  return presetCache;
 }
 var PRESET_SLIDERS = [
   "exposure",

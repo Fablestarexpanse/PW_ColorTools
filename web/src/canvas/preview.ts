@@ -15,7 +15,8 @@
  * colour nodes would start losing previews at random.
  */
 
-import { fetchPw } from '../comfy.ts';
+
+import { fetchPw } from '../fetch.ts';
 import { Lattice } from '../core/lattice.ts';
 import { PW } from '../theme.ts';
 import { fillPanel, text, type Ctx, type Rect } from '../widgets/draw.ts';
@@ -217,10 +218,16 @@ class Renderer {
 export class TexSource {
   private tex: WebGLTexture | null = null;
   private uploaded = false;
+  private readonly bitmap: ImageBitmap;
   readonly width: number;
   readonly height: number;
 
-  constructor(private readonly bitmap: ImageBitmap) {
+  // Written out rather than declared as a constructor parameter property:
+  // node's strip-only type removal rejects those, and this module has to load
+  // under bare node for `web/test/preview.test.ts` — the same constraint the
+  // parity harnesses live under, and for the same reason.
+  constructor(bitmap: ImageBitmap) {
+    this.bitmap = bitmap;
     this.width = bitmap.width;
     this.height = bitmap.height;
   }
@@ -346,6 +353,7 @@ export class Preview {
     }
   }
 
+  /** Whether there is anything to draw — and therefore anything to interact with. */
   get hasImage(): boolean {
     return this.source !== null || this.output !== null;
   }
@@ -477,7 +485,11 @@ export class Preview {
    * to trigger by accident while looking around a zoomed image.
    */
   onPointerDown(x: number, y: number, r: Rect, shift: boolean, doubleClick: boolean): boolean {
-    if (!this.source) return false;
+    // Guarded on the same condition the renderer uses. Guarding on `source`
+    // alone meant a node showing only its output — which happens when the two
+    // independent caches evict at different times — drew an image that could
+    // not be panned or zoomed, with nothing to say why.
+    if (!this.hasImage) return false;
     if (doubleClick) {
       this.resetView();
       return true;
@@ -489,7 +501,7 @@ export class Preview {
   }
 
   onPointerMove(x: number, y: number, r: Rect): boolean {
-    if (!this.dragging || !this.source) return false;
+    if (!this.dragging || !this.hasImage) return false;
     if (this.dragging === 'wipe') {
       this.wipe = Math.min(1, Math.max(0, (x - r.x) / r.w));
       return true;
@@ -510,7 +522,7 @@ export class Preview {
 
   /** Wheel zoom about the cursor, so the pixel under it stays put. */
   onWheel(x: number, y: number, r: Rect, delta: number): boolean {
-    if (!this.source) return false;
+    if (!this.hasImage) return false;
     const before = this.view(r);
     const prev = this.zoom;
     this.zoom = Math.min(16, Math.max(1, this.zoom * (delta < 0 ? 1.15 : 1 / 1.15)));

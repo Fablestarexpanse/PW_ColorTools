@@ -328,14 +328,6 @@ export class CurveEditor {
     this.changed();
   }
 
-  applyPreset(preset: Partial<CurveEditorState>): void {
-    for (const k of ['luma', 'r', 'g', 'b'] as ChannelId[]) {
-      const v = preset[k];
-      if (v) this.state[k] = v.map((p) => [p[0], p[1]] as CurvePoint);
-    }
-    this.changed();
-  }
-
   private changed(): void {
     this.onChange?.();
   }

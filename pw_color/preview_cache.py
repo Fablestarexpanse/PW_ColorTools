@@ -75,8 +75,7 @@ class _ByteCache:
     and twenty-four of those is not a few megabytes.
     """
 
-    def __init__(self, label: str) -> None:
-        self.label = label
+    def __init__(self) -> None:
         self._lock = threading.Lock()
         self._entries: "OrderedDict[str, dict]" = OrderedDict()
         self._bytes = 0
@@ -117,9 +116,9 @@ class _ByteCache:
 
 
 #: What each node was given, for the histogram and the before-side of a compare.
-inputs = _ByteCache("input")
+inputs = _ByteCache()
 #: What a spatial node produced, for nodes whose effect cannot be baked.
-outputs = _ByteCache("output")
+outputs = _ByteCache()
 
 
 def _histogram(image: torch.Tensor, bins: int = 256) -> dict[str, list[float]]:

@@ -40,18 +40,6 @@ export interface SpatialPreviewOptions {
   label?: string;
 }
 
-export interface SpatialPreviewHandle {
-  preview: Preview;
-  previewRect: (node: NodeLike) => Rect;
-  extraTop: (node: NodeLike) => number;
-}
-
-const handles = new WeakMap<object, SpatialPreviewHandle>();
-
-export function spatialPreviewOf(node: NodeLike): SpatialPreviewHandle | undefined {
-  return handles.get(node);
-}
-
 /**
  * Attach a result preview to a node type.
  *
@@ -71,7 +59,6 @@ export function attachSpatialPreview(nodeType: any, opts: SpatialPreviewOptions)
       const y = extraTop(n) + (opts.extra?.(n) ?? 0) + HEADER_H + 6;
       return { x, y, w, h: opts.height };
     };
-    handles.set(this, { preview, previewRect, extraTop });
 
     const panelHeight = () => (opts.extra?.(this) ?? 0) + HEADER_H + 6 + opts.height + M.gapSection + M.padding;
     fitPanel(this, panelHeight(), opts.minWidth);

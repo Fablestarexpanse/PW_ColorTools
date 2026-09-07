@@ -13,7 +13,7 @@ from comfy_api.latest import io
 
 from ..palette import SORT_MODES, extract_palette
 from ..palette_io import PALETTE_FORMATS, list_saved, load_palette, save_palette
-from ..preview_server import store_input_for_node
+from ..preview_cache import store_input_for_node
 from ..swatch_strip import render_strip
 from ..types import Palette
 

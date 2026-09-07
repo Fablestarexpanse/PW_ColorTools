@@ -35,7 +35,7 @@ from ..ops import build_sample_fn
 from ..paths import LOOK_PRESETS
 from ..presets import preset_ids as _preset_ids
 from ..presets import preset_name, resolve_preset
-from ..preview_server import store_input_for_node
+from ..preview_cache import store_input_for_node
 from ..types import Look, LookOp, Palette
 
 GRADIENT_BLENDS = ("colour", "normal", "soft light", "overlay", "multiply", "screen")

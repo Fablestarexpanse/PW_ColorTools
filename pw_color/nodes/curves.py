@@ -29,7 +29,7 @@ from ..ops import build_sample_fn
 from ..paths import CURVE_PRESETS
 from ..presets import preset_ids as _preset_ids
 from ..presets import resolve_preset
-from ..preview_server import store_input_for_node
+from ..preview_cache import store_input_for_node
 from ..types import Look, LookOp
 
 

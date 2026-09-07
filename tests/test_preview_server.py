@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from pw_color import preview_cache as pc
 from pw_color import preview_server as ps
 
 
@@ -23,11 +24,11 @@ def empty_caches():
     previous one left behind — and the bounds tests are precisely the ones that
     fill the cache up.
     """
-    ps.inputs.clear()
-    ps.outputs.clear()
+    pc.inputs.clear()
+    pc.outputs.clear()
     yield
-    ps.inputs.clear()
-    ps.outputs.clear()
+    pc.inputs.clear()
+    pc.outputs.clear()
 
 
 def _image(h: int = 32, w: int = 48, seed: int = 1) -> torch.Tensor:
@@ -38,8 +39,8 @@ def _image(h: int = 32, w: int = 48, seed: int = 1) -> torch.Tensor:
 
 def test_store_and_get_round_trip():
     img = _image()
-    ps.store("node-1", img)
-    entry = ps.get("node-1")
+    pc.store("node-1", img)
+    entry = pc.get("node-1")
     assert entry is not None
     assert entry["width"] == 48 and entry["height"] == 32
     assert entry["proxy"][:2] == b"\xff\xd8"  # JPEG SOI
@@ -47,33 +48,33 @@ def test_store_and_get_round_trip():
 
 
 def test_missing_node_returns_none():
-    assert ps.get("nope") is None
+    assert pc.get("nope") is None
 
 
 def test_histogram_counts_every_pixel():
     img = _image(16, 16)
-    ps.store("n", img)
-    h = ps.get("n")["histogram"]
+    pc.store("n", img)
+    h = pc.get("n")["histogram"]
     for channel in ("r", "g", "b", "luma"):
         assert int(sum(h[channel])) == 16 * 16, channel
 
 
 def test_histogram_of_flat_black_is_one_spike():
-    ps.store("n", torch.zeros(1, 8, 8, 3))
-    h = ps.get("n")["histogram"]
+    pc.store("n", torch.zeros(1, 8, 8, 3))
+    h = pc.get("n")["histogram"]
     assert h["luma"][0] == 64
     assert sum(h["luma"][1:]) == 0
 
 
 def test_histogram_of_flat_white_is_at_the_top():
-    ps.store("n", torch.ones(1, 8, 8, 3))
-    h = ps.get("n")["histogram"]
+    pc.store("n", torch.ones(1, 8, 8, 3))
+    h = pc.get("n")["histogram"]
     assert h["luma"][255] == 64
 
 
 def test_proxy_is_downscaled_but_dimensions_are_reported_full():
-    ps.store("big", _image(1024, 2048))
-    entry = ps.get("big")
+    pc.store("big", _image(1024, 2048))
+    entry = pc.get("big")
     # The reported size is the real image; the proxy is what got shrunk.
     assert entry["width"] == 2048 and entry["height"] == 1024
     assert len(entry["proxy"]) < 400_000
@@ -81,37 +82,37 @@ def test_proxy_is_downscaled_but_dimensions_are_reported_full():
 
 def test_cache_is_bounded_by_entry_count():
     img = _image(8, 8)
-    for i in range(ps.MAX_ENTRIES + 12):
-        ps.store(str(i), img)
-    assert len(ps.inputs) <= ps.MAX_ENTRIES
+    for i in range(pc.MAX_ENTRIES + 12):
+        pc.store(str(i), img)
+    assert len(pc.inputs) <= pc.MAX_ENTRIES
 
 
 def test_eviction_is_least_recently_used():
     img = _image(8, 8)
-    for i in range(ps.MAX_ENTRIES):
-        ps.store(str(i), img)
+    for i in range(pc.MAX_ENTRIES):
+        pc.store(str(i), img)
     # Touch the oldest so it is no longer the least recently used.
-    ps.get("0")
-    ps.store("fresh", img)
-    assert ps.get("0") is not None
-    assert ps.get("1") is None
+    pc.get("0")
+    pc.store("fresh", img)
+    assert pc.get("0") is not None
+    assert pc.get("1") is None
 
 
 def test_restoring_the_same_node_does_not_double_count_bytes():
     img = _image()
-    ps.store("n", img)
-    first = ps.inputs.nbytes
+    pc.store("n", img)
+    first = pc.inputs.nbytes
     for _ in range(5):
-        ps.store("n", img)
-    assert len(ps.inputs) == 1
-    assert ps.inputs.nbytes == first
+        pc.store("n", img)
+    assert len(pc.inputs) == 1
+    assert pc.inputs.nbytes == first
 
 
 def test_bad_input_is_ignored_rather_than_raising():
     """A preview concern must never break a render."""
-    ps.store("n", None)  # type: ignore[arg-type]
-    ps.store("n", torch.rand(32, 32, 3))  # missing batch dim
-    assert ps.get("n") is None
+    pc.store("n", None)  # type: ignore[arg-type]
+    pc.store("n", torch.rand(32, 32, 3))  # missing batch dim
+    assert pc.get("n") is None
 
 
 def test_register_routes_is_safe_outside_a_server():
@@ -124,8 +125,8 @@ def test_register_routes_is_safe_outside_a_server():
 
 
 def test_output_cache_round_trip():
-    ps.store_output("n", _image(64, 96))
-    entry = ps.get_output("n")
+    pc.store_output("n", _image(64, 96))
+    entry = pc.get_output("n")
     assert entry is not None
     assert entry["width"] == 96 and entry["height"] == 64
     assert entry["proxy"][:2] == b"\xff\xd8"  # JPEG full frame
@@ -135,8 +136,8 @@ def test_output_cache_round_trip():
 def test_crop_is_lossless_because_grain_is_high_frequency():
     """JPEG would smooth exactly the detail the crop exists to show, making
     grain look finer and softer than it renders."""
-    ps.store_output("n", _image(256, 256))
-    entry = ps.get_output("n")
+    pc.store_output("n", _image(256, 256))
+    entry = pc.get_output("n")
     assert entry["crop"][:8] == b"\x89PNG\r\n\x1a\n", "the 1:1 crop must not be lossy"
 
 
@@ -146,14 +147,14 @@ def test_crop_is_native_resolution_not_downscaled():
     import io as _io
 
     src = _image(1024, 1024)
-    ps.store_output("n", src)
-    with Image.open(_io.BytesIO(ps.get_output("n")["crop"])) as im:
-        assert im.size == (ps.CROP_EDGE, ps.CROP_EDGE)
+    pc.store_output("n", src)
+    with Image.open(_io.BytesIO(pc.get_output("n")["crop"])) as im:
+        assert im.size == (pc.CROP_EDGE, pc.CROP_EDGE)
 
     # And the pixels must match the centre of the source exactly.
-    top = (1024 - ps.CROP_EDGE) // 2
-    expected = (src[0, top : top + ps.CROP_EDGE, top : top + ps.CROP_EDGE, :3] * 255 + 0.5).to(torch.uint8)
-    with Image.open(_io.BytesIO(ps.get_output("n")["crop"])) as im:
+    top = (1024 - pc.CROP_EDGE) // 2
+    expected = (src[0, top : top + pc.CROP_EDGE, top : top + pc.CROP_EDGE, :3] * 255 + 0.5).to(torch.uint8)
+    with Image.open(_io.BytesIO(pc.get_output("n")["crop"])) as im:
         import numpy as np
 
         got = torch.from_numpy(np.asarray(im.convert("RGB")))
@@ -161,36 +162,36 @@ def test_crop_is_native_resolution_not_downscaled():
 
 
 def test_crop_handles_images_smaller_than_the_crop():
-    ps.store_output("n", _image(64, 48))
+    pc.store_output("n", _image(64, 48))
     from PIL import Image
     import io as _io
 
-    with Image.open(_io.BytesIO(ps.get_output("n")["crop"])) as im:
+    with Image.open(_io.BytesIO(pc.get_output("n")["crop"])) as im:
         assert im.size == (48, 48)
 
 
 def test_output_cache_is_bounded_and_lru():
     img = _image(16, 16)
-    for i in range(ps.MAX_ENTRIES + 6):
-        ps.store_output(str(i), img)
-    assert len(ps.outputs) <= ps.MAX_ENTRIES
-    assert ps.get_output("0") is None
+    for i in range(pc.MAX_ENTRIES + 6):
+        pc.store_output(str(i), img)
+    assert len(pc.outputs) <= pc.MAX_ENTRIES
+    assert pc.get_output("0") is None
 
 
 def test_output_cache_does_not_double_count_bytes():
     img = _image(64, 64)
-    ps.store_output("n", img)
-    first = ps.outputs.nbytes
+    pc.store_output("n", img)
+    first = pc.outputs.nbytes
     for _ in range(4):
-        ps.store_output("n", img)
-    assert len(ps.outputs) == 1 and ps.outputs.nbytes == first
+        pc.store_output("n", img)
+    assert len(pc.outputs) == 1 and pc.outputs.nbytes == first
 
 
 def test_output_and_input_caches_are_independent():
-    ps.store("n", _image(32, 32))
-    assert ps.get_output("n") is None
-    ps.store_output("n", _image(32, 32))
-    assert ps.get("n") is not None and ps.get_output("n") is not None
+    pc.store("n", _image(32, 32))
+    assert pc.get_output("n") is None
+    pc.store_output("n", _image(32, 32))
+    assert pc.get("n") is not None and pc.get_output("n") is not None
 
 
 def test_store_output_for_node_is_silent_without_hidden_data():
@@ -198,13 +199,13 @@ def test_store_output_for_node_is_silent_without_hidden_data():
     class Fake:
         hidden = None
 
-    assert ps.store_output_for_node(Fake, _image()) is False
+    assert pc.store_output_for_node(Fake, _image()) is False
 
 
 def test_bad_output_is_ignored_rather_than_raising():
-    ps.store_output("n", None)  # type: ignore[arg-type]
-    ps.store_output("n", torch.rand(32, 32, 3))
-    assert ps.get_output("n") is None
+    pc.store_output("n", None)  # type: ignore[arg-type]
+    pc.store_output("n", torch.rand(32, 32, 3))
+    assert pc.get_output("n") is None
 
 
 def test_register_routes_is_idempotent(monkeypatch):
@@ -289,7 +290,7 @@ def test_every_route_the_frontend_calls_is_registered():
 
 
 def test_input_route_serves_the_cached_jpeg():
-    ps.store("n", _image())
+    pc.store("n", _image())
     res = _call("/pw_color/input/{node_id}")
     assert res.content_type == "image/jpeg"
     assert res.body[:2] == b"\xff\xd8"
@@ -298,14 +299,14 @@ def test_input_route_serves_the_cached_jpeg():
 
 def test_output_crop_route_serves_png_not_jpeg():
     """JPEG smooths high-frequency detail, which is precisely what grain is."""
-    ps.store_output("n", _image())
+    pc.store_output("n", _image())
     res = _call("/pw_color/output_crop/{node_id}")
     assert res.content_type == "image/png"
     assert res.body[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_histogram_route_returns_the_bins_and_the_true_size():
-    ps.store("n", _image(h=32, w=48))
+    pc.store("n", _image(h=32, w=48))
     res = _call("/pw_color/histogram/{node_id}")
     assert res.status == 200
     assert res.data["width"] == 48 and res.data["height"] == 32

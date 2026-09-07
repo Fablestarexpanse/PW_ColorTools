@@ -11,7 +11,7 @@ from __future__ import annotations
 import torch
 from comfy_api.latest import io
 
-from ..preview_server import store_input_for_node
+from ..preview_cache import store_input_for_node
 from ..scopes import SCOPE_MODES, render_scope
 
 

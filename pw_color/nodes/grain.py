@@ -24,7 +24,7 @@ from ..grain import (
     procedural_field,
 )
 from ..paths import GRAIN_DIR
-from ..preview_server import store_input_for_node, store_output_for_node
+from ..preview_cache import store_input_for_node, store_output_for_node
 from ..types import Look, LookOp
 
 PLATES_DIR = GRAIN_DIR

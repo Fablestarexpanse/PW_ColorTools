@@ -1,7 +1,11 @@
 """The HTTP layer over the preview caches.
 
 Five routes, all read-only, all serving what `preview_cache` already holds. The
-caching and encoding live there; this file is only about how the browser asks.
+caching and encoding live there; this file is only about how the browser asks,
+and it imports two readers to do it. It deliberately does *not* re-export the
+cache's writers: doing that made every node import its image cache from the
+module named "server", which is how a split becomes nominal — the file moved
+but the dependency arrow did not.
 
 On who can read these caches.
 
@@ -25,36 +29,9 @@ import logging
 from typing import Any, Awaitable, Callable
 
 from .paths import LOOK_PRESETS
-from .preview_cache import (  # noqa: F401 - re-exported as the pack's preview surface
-    CROP_EDGE,
-    MAX_BYTES,
-    MAX_ENTRIES,
-    PROXY_LONG_EDGE,
-    get,
-    get_output,
-    inputs,
-    outputs,
-    store,
-    store_input_for_node,
-    store_output,
-    store_output_for_node,
-)
+from .preview_cache import get, get_output
 
-__all__ = [
-    "register_routes",
-    "store",
-    "store_output",
-    "store_input_for_node",
-    "store_output_for_node",
-    "get",
-    "get_output",
-    "inputs",
-    "outputs",
-    "PROXY_LONG_EDGE",
-    "CROP_EDGE",
-    "MAX_ENTRIES",
-    "MAX_BYTES",
-]
+__all__ = ["register_routes"]
 
 _log = logging.getLogger("PW_Color")
 
