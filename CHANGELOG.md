@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.1
+
+### Fixed
+
+- **On Linux, a backslash in a save name reached the filename.** The name
+  sanitiser took the last path segment using the host's own separator, so on
+  Linux `..\..\x` was one segment and its `..` survived into the file. Never
+  a traversal (the result stayed inside the looks directory) but not the name
+  the docstring promised. Both separators are now cut on every platform. Found
+  by the first CI run on ubuntu; Windows could not reproduce it.
+- CI could not have passed: the dependency step pointed pip at the PyTorch
+  index alone, which has no `pytest`, and installed a fraction of what
+  importing ComfyUI needs. Failed tests now surface as run annotations.
+
 ## 2.0.0
 
 A code-health release. No node was added or removed and no saved workflow

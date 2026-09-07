@@ -28,6 +28,15 @@ def test_safe_name_never_returns_a_path(raw: str):
     assert out.endswith(".json")
 
 
+@pytest.mark.parametrize("raw", ["..\\..\\windows\\x", "C:\\evil", "..\\x/..\\y"])
+def test_safe_name_cuts_backslashes_on_every_platform(raw: str):
+    """On Linux a backslash is an ordinary character, so `Path(raw).name` left
+    the whole string intact and its `..` reached the filename. Found by CI on
+    ubuntu; every Windows run passed."""
+    out = U.safe_name(raw, "json", "fallback")
+    assert BACKSLASH not in out and "/" not in out and ".." not in out
+
+
 def test_safe_name_falls_back_when_nothing_survives():
     assert U.safe_name("   ", "look", "look") == "look.look"
     assert U.safe_name("...", "json", "palette") == "palette.json"

@@ -50,6 +50,7 @@ __all__ = [
 PARSE_FAILURES = (struct.error, IndexError, KeyError, TypeError, AttributeError, UnicodeDecodeError)
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9 ._-]")
+_SEPARATORS = re.compile(r"[\\/]")
 
 
 def output_root() -> Path:
@@ -74,8 +75,14 @@ def safe_name(name: str, ext: str, fallback: str) -> str:
     Path separators and ``..`` are stripped rather than escaped: the value comes
     from a text widget, and the only correct handling of a traversal attempt is
     for the result not to be a path at all.
+
+    Both separators are cut on every platform. ``Path(...).name`` only knows the
+    host's own, so on Linux ``..\\x`` survived as one long segment and its
+    ``..`` reached the filename; CI caught it, the Windows machine it was
+    written on never could.
     """
-    stem = _UNSAFE.sub("_", Path(name.strip()).name).strip(" .") or fallback
+    last = _SEPARATORS.split(name.strip())[-1]
+    stem = _UNSAFE.sub("_", last).strip(" .") or fallback
     return f"{stem}.{ext.lstrip('.')}"
 
 
