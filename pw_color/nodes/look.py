@@ -25,13 +25,13 @@ from typing import Literal, get_args
 import torch
 from comfy_api.latest import io
 
-from ._schema import image_and_look_outputs, look_in
+from ._schema import image_and_look_outputs, look_in, look_out
 from ..blend import BLEND_MODES, composite
 from ..colour import with_alpha_of
 from ..glow import apply_glow
 from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from ..look import HSL_BANDS, ramp_from_palette
-from ..match import MATCH_TIERS, MatchTier, match_least_squares, match_mean_std
+from ..match import MATCH_TIERS, MatchTier, match_reference
 from ..ops import build_sample_fn
 from ..paths import LOOK_PRESETS
 from ..presets import preset_ids as _preset_ids
@@ -70,7 +70,7 @@ def _reference_match(
     image: torch.Tensor,
     reference: torch.Tensor | None,
     strength: float,
-    mode: str,
+    tier: MatchTier,
 ) -> tuple[torch.Tensor, list[LookOp]]:
     """Stage 1: normalise toward a reference before any creative decision.
 
@@ -78,13 +78,12 @@ def _reference_match(
     """
     if reference is None or strength <= 0.0:
         return image, []
-    if mode == "least_squares":
-        out = match_least_squares(image, reference=reference, mask=None, strength=strength)
-    else:
-        out = match_mean_std(image, original=reference, mask=None, strength=strength, space="oklab")
+    out = match_reference(image, reference, tier=tier, mask=None, strength=strength, space="oklab")
     op = LookOp(
         type="reference_match",
-        params={"space": "oklab", "mode": mode},
+        # `space` is recorded because it is what the match ran in; tier two
+        # works in OKLab by construction, so both tiers report the same one.
+        params={"space": "oklab", "mode": tier},
         strength=strength,
         lut_safe=False,  # depends on this specific pair of images
     )
@@ -342,12 +341,6 @@ class PW_Look(io.ComfyNode):
         # -- 5. master strength and blend ---------------------------------------
         result = with_alpha_of(composite(out[..., :3], graded[..., :3], blend, float(strength)), image)
 
-        look = Look.from_dict(look_in) if look_in else Look()
-        for op in ops:
-            look = look.appended(op)
-        name = preset_name(LOOK_PRESETS, preset)
-        if name:
-            look.name = name
-        return io.NodeOutput(result, look.to_dict())
+        return io.NodeOutput(result, look_out(look_in, *ops, name=preset_name(LOOK_PRESETS, preset)))
 
 NODES = [PW_Look]

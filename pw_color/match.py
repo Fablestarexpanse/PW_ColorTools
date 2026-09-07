@@ -31,7 +31,7 @@ import torch
 from . import colour
 from .colour import with_alpha_of
 
-__all__ = ["MatchStats", "channel_stats", "match_mean_std", "match_least_squares", "MATCH_SPACES", "MATCH_TIERS", "MatchSpace", "MatchTier"]
+__all__ = ["MatchStats", "channel_stats", "match_mean_std", "match_least_squares", "MATCH_SPACES", "MATCH_TIERS", "MatchSpace", "MatchTier", "match_reference"]
 
 #: Reference-matching strategies, simplest first.
 #:
@@ -331,3 +331,34 @@ def match_least_squares(
     out = out.clamp(0.0, 1.0).to(dtype)
 
     return with_alpha_of(out, processed)
+
+
+def match_reference(
+    processed: torch.Tensor,
+    reference: torch.Tensor,
+    *,
+    tier: MatchTier = "mean_std",
+    mask: torch.Tensor | None = None,
+    strength: float = 1.0,
+    space: MatchSpace = "oklab",
+    max_gain: float = 4.0,
+) -> torch.Tensor:
+    """Match ``processed`` to ``reference`` at the chosen tier.
+
+    The two tiers take differently shaped arguments — one names its target
+    ``original`` and accepts a ``space``, the other names it ``reference`` and
+    does not — so every caller had to know which it was calling. Here the caller
+    picks a tier and the shapes are this function's problem.
+
+    ``space`` is only meaningful for mean/std: tier two works in OKLab by
+    construction, because that is where its covariance transport is defined.
+    """
+    if tier == "least_squares":
+        return match_least_squares(
+            processed, reference=reference, mask=mask, strength=strength, max_gain=max_gain
+        )
+    if tier == "mean_std":
+        return match_mean_std(
+            processed, original=reference, mask=mask, strength=strength, space=space, max_gain=max_gain
+        )
+    raise ValueError(f"unknown match tier {tier!r}, expected one of {MATCH_TIERS}")

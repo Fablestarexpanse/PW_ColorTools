@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from comfy_api.latest import io
 
-__all__ = ["look_in", "image_and_look_outputs"]
+from ..types import Look, LookOp
+
+__all__ = ["look_in", "image_and_look_outputs", "look_out"]
 
 
 def look_in() -> io.Input:
@@ -48,3 +50,22 @@ def image_and_look_outputs() -> list[io.Output]:
         io.Image.Output(display_name="image"),
         io.Custom("LOOK").Output(display_name="look"),
     ]
+
+
+def look_out(look_in: dict | None, *ops: LookOp, name: str = "") -> dict:
+    """Append this node's ops to the incoming stack and hand back the dict.
+
+    The other half of `look_in`, and the step every grading node ends with. It
+    was written out in five modules — decode, append, encode — each with its own
+    small variation in whether it looped or appended once, which is three lines
+    of contract living nowhere.
+
+    ``name`` labels the stack when this node is the one that names it; an empty
+    string leaves whatever was already there.
+    """
+    look = Look.from_dict(look_in) if look_in else Look()
+    for op in ops:
+        look = look.appended(op)
+    if name:
+        look.name = name
+    return look.to_dict()

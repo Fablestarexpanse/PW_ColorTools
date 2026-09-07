@@ -16,7 +16,7 @@ from __future__ import annotations
 import torch
 from comfy_api.latest import io
 
-from ._schema import image_and_look_outputs, look_in
+from ._schema import image_and_look_outputs, look_in, look_out
 from ..optics import apply_chromatic_aberration, apply_halation, apply_vignette
 from ..preview_cache import store_input_for_node, store_output_for_node
 from ..types import Look, LookOp
@@ -142,10 +142,7 @@ class PW_Optics(io.ComfyNode):
         # reproduce. The real output is the only honest preview.
         store_output_for_node(cls, out)
 
-        look = Look.from_dict(look_in) if look_in else Look()
-        for op in ops:
-            look = look.appended(op)
-        return io.NodeOutput(out, look.to_dict())
+        return io.NodeOutput(out, look_out(look_in, *ops))
 
 
 NODES = [PW_Optics]

@@ -13,7 +13,7 @@ from functools import lru_cache
 import torch
 from comfy_api.latest import io
 
-from ._schema import image_and_look_outputs, look_in
+from ._schema import image_and_look_outputs, look_in, look_out
 from ..grain import (
     DEFAULT_CHROMA,
     GRAIN_BLEND_MODES,
@@ -274,8 +274,7 @@ class PW_Grain(io.ComfyNode):
         # actually produced is the only preview that tells the truth.
         store_output_for_node(cls, out)
 
-        look = Look.from_dict(look_in) if look_in else Look()
-        return io.NodeOutput(out, look.appended(op).to_dict())
+        return io.NodeOutput(out, look_out(look_in, op))
 
 
 NODES = [PW_Grain]

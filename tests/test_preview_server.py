@@ -279,14 +279,29 @@ def _call(path: str, node_id: str = "n"):
 
 
 def test_every_route_the_frontend_calls_is_registered():
-    """The browser hardcodes these paths; a rename here is a silent 404 there."""
-    assert set(_routes()) == {
-        "/pw_color/input/{node_id}",
-        "/pw_color/histogram/{node_id}",
-        "/pw_color/output/{node_id}",
-        "/pw_color/output_crop/{node_id}",
-        "/pw_color/presets",
-    }
+    """The set the browser asks for must be the set the server serves.
+
+    Derived from the TypeScript rather than retyped here: a hardcoded list would
+    be a third copy of the vocabulary, and this test would then be checking the
+    server against my memory of the browser instead of against the browser. Same
+    approach as tests/test_theme.py, which parses theme.ts.
+    """
+    import re
+    from pathlib import Path
+
+    web = Path(__file__).resolve().parents[1] / "web" / "src"
+    called = set()
+    for source in web.rglob("*.ts"):
+        for path in re.findall(r"/pw_color/[a-z_]+", source.read_text(encoding="utf-8")):
+            called.add(path)
+    assert called, "found no pw_color routes in the frontend sources"
+
+    # The server declares them with a {node_id} segment the browser fills in.
+    served = {p.split("/{")[0] for p in _routes()}
+    assert called == served, (
+        f"the browser calls {sorted(called - served)} that the server does not serve, "
+        f"and the server serves {sorted(served - called)} that nothing calls"
+    )
 
 
 def test_input_route_serves_the_cached_jpeg():

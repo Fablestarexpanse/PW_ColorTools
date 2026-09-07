@@ -20,7 +20,7 @@ from __future__ import annotations
 import torch
 from comfy_api.latest import io
 
-from ._schema import image_and_look_outputs, look_in
+from ._schema import image_and_look_outputs, look_in, look_out
 from ..match import MATCH_SPACES, MatchSpace, match_mean_std
 from ..types import Look, LookOp
 
@@ -126,8 +126,7 @@ class PW_MatchSource(io.ComfyNode):
         # Appends rather than starting fresh. This node emits a LOOK, so without
         # a look_in it was the one LOOK-emitting node that could not sit mid
         # chain: putting it after a grade silently dropped everything upstream.
-        look = Look.from_dict(look_in) if look_in else Look(name="match source")
-        return io.NodeOutput(out, look.appended(op).to_dict())
+        return io.NodeOutput(out, look_out(look_in, op, name="" if look_in else "match source"))
 
 
 NODES = [PW_MatchSource]

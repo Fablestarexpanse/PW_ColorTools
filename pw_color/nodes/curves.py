@@ -18,11 +18,12 @@ Two things distinguish it from the existing options:
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import torch
 from comfy_api.latest import io
 
-from ._schema import image_and_look_outputs, look_in
+from ._schema import image_and_look_outputs, look_in, look_out
 from ..curve import IDENTITY_POINTS
 from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from ..ops import build_sample_fn
@@ -47,7 +48,7 @@ _DEFAULT_CURVES = json.dumps(
 )
 
 
-def _normalise(points) -> list[list[float]]:
+def _normalise(points: object) -> list[list[float]]:
     """Coerce whatever came out of the workflow JSON into control points.
 
     Permissive about *missing* data — a short or absent list falls back to the
@@ -143,7 +144,9 @@ class PW_Curves(io.ComfyNode):
         if chosen:
             raw = {**{k: _IDENTITY for k in ("luma", "r", "g", "b")}, **chosen.get("curves", {})}
 
-        params = {k: _normalise(raw.get(k)) for k in ("luma", "r", "g", "b")}
+        # Heterogeneous on purpose: four curves plus the flag that says how to
+        # apply them, which is the shape ops.op_curves consumes.
+        params: dict[str, Any] = {k: _normalise(raw.get(k)) for k in ("luma", "r", "g", "b")}
         params["preserve_hue"] = bool(preserve_hue)
 
         op = LookOp(type="curves", params=params, strength=float(strength), lut_safe=True)
@@ -152,8 +155,7 @@ class PW_Curves(io.ComfyNode):
         lattice = Lattice.from_fn(build_sample_fn([op.to_dict()]), size)
         out = lattice.apply(image)
 
-        look = Look.from_dict(look_in) if look_in else Look()
-        return io.NodeOutput(out, look.appended(op).to_dict())
+        return io.NodeOutput(out, look_out(look_in, op))
 
 
 NODES = [PW_Curves]
