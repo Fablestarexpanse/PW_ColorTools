@@ -74,11 +74,9 @@ jobs:
               if node is None:
                   continue
               name = f'{c.get("classname")}::{c.get("name")}'
-              text = (node.get("message") or "") + "
-" + (node.text or "")
+              text = (node.get("message") or "") + "\n" + (node.text or "")
               lines = [l for l in text.strip().splitlines() if l.strip()]
-              tail = " | ".join(lines[-6:])[:1500].replace("%", "%25").replace("", "").replace("
-", "%0A")
+              tail = " | ".join(lines[-6:])[:1500].replace("%", "%25").replace("\r", "").replace("\n", "%0A")
               print(f"::error title={name}::{tail}")
               failed.append(name)
           if failed:
