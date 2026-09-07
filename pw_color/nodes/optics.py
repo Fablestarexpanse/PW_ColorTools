@@ -19,7 +19,7 @@ from comfy_api.latest import io
 from ._schema import image_and_look_outputs, look_in, look_out
 from ..optics import apply_chromatic_aberration, apply_halation, apply_vignette
 from ..preview_cache import store_input_for_node, store_output_for_node
-from ..types import Look, LookOp
+from ..types import LookOp
 
 
 class PW_Optics(io.ComfyNode):

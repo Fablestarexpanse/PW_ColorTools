@@ -13,11 +13,16 @@ five files rather than something stated once.
 
 from __future__ import annotations
 
+from typing import Any
+
 from comfy_api.latest import io
 
 from ..types import Look, LookOp
 
-__all__ = ["look_in", "image_and_look_outputs", "look_out"]
+#: A serialised LOOK, as it travels between nodes.
+LookDict = dict[str, Any]
+
+__all__ = ["look_in", "image_and_look_outputs", "look_out", "LookDict"]
 
 
 def look_in() -> io.Input:
@@ -52,7 +57,7 @@ def image_and_look_outputs() -> list[io.Output]:
     ]
 
 
-def look_out(look_in: dict | None, *ops: LookOp, name: str = "") -> dict:
+def look_out(look_in: LookDict | None, *ops: LookOp, name: str = "") -> LookDict:
     """Append this node's ops to the incoming stack and hand back the dict.
 
     The other half of `look_in`, and the step every grading node ends with. It

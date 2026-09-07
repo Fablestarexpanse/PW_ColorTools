@@ -37,7 +37,7 @@ from ..paths import LOOK_PRESETS
 from ..presets import preset_ids as _preset_ids
 from ..presets import preset_name, resolve_preset
 from ..preview_cache import store_input_for_node
-from ..types import BlendMode, Look, LookOp, Palette
+from ..types import BlendMode, LookOp, Palette
 
 #: Gradient-map blends. A superset of the master blend modes by one entry:
 #: `colour` keeps the image's lightness and takes the ramp's hue and chroma,

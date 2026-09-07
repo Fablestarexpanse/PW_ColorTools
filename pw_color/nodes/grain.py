@@ -26,7 +26,7 @@ from ..grain import (
 )
 from ..paths import GRAIN_DIR
 from ..preview_cache import store_input_for_node, store_output_for_node
-from ..types import Look, LookOp
+from ..types import LookOp
 
 PLATE_SUFFIXES = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp")
 

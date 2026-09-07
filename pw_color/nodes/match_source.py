@@ -22,7 +22,7 @@ from comfy_api.latest import io
 
 from ._schema import image_and_look_outputs, look_in, look_out
 from ..match import MATCH_SPACES, MatchSpace, match_mean_std
-from ..types import Look, LookOp
+from ..types import LookOp
 
 
 class PW_MatchSource(io.ComfyNode):
