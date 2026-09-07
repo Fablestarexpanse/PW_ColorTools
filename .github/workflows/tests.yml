@@ -56,7 +56,38 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Run the suite
-        run: python -m pytest tests/ -q -rs --junitxml=results.xml
+        # Keep going on failure: the next step turns each failed test into a
+        # workflow annotation, which is readable on the run page without a
+        # login, unlike the raw log. The job still fails, one step later.
+        run: python -m pytest tests/ -q -rs --junitxml=results.xml || true
+
+      - name: Report failures as annotations
+        run: |
+          python - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          root = ET.parse("results.xml").getroot()
+          failed = []
+          for c in root.iter("testcase"):
+              node = c.find("failure")
+              if node is None:
+                  node = c.find("error")
+              if node is None:
+                  continue
+              name = f'{c.get("classname")}::{c.get("name")}'
+              text = (node.get("message") or "") + "
+" + (node.text or "")
+              lines = [l for l in text.strip().splitlines() if l.strip()]
+              tail = " | ".join(lines[-6:])[:1500].replace("%", "%25").replace("", "").replace("
+", "%0A")
+              print(f"::error title={name}::{tail}")
+              failed.append(name)
+          if failed:
+              print(f"{len(failed)} test(s) failed:")
+              for n in failed:
+                  print("  ", n)
+              sys.exit(1)
+          print("no failures")
+          PY
 
       - name: Fail if a suite skipped
         # Two kinds of skip are expected and named below. Everything else means
