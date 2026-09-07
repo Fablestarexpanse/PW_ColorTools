@@ -210,22 +210,27 @@ class PW_Grain(io.ComfyNode):
         b, h, w = image.shape[0], image.shape[1], image.shape[2]
         tonal = TonalResponse(shadows, midtones, highlights)
 
+        # One decision, made once: what the grain comes from, and what to call
+        # it in the LookOp. A wired plate image wins over a shipped one.
+        #
+        # The plate is fetched through a callable rather than loaded here, so a
+        # node sitting at amount 0 — where reset leaves it, and where the
+        # shipped example workflow starts — does not read and decode a PNG that
+        # nothing will consume.
         if plate_image is not None:
-            source = "plate_image"
+            source, take_plate = "plate_image", lambda: plate_image
         elif plate and plate != "none":
-            source = plate
+            source, take_plate = plate, lambda: _load_plate(plate)
         else:
-            source = "procedural"
+            source, take_plate = "procedural", None
 
         out = image
         if amount > 0.0 and opacity > 0.0:
             # Built here rather than above: a full-resolution noise field is the
             # expensive part of this node, and at amount 0 nothing consumes it.
-            if plate_image is not None:
-                field = plate_field(plate_image, batch=b, height=h, width=w, seed=seed, vary_per_frame=vary_per_frame)
-            elif source != "procedural":
+            if take_plate is not None:
                 field = plate_field(
-                    _load_plate(plate), batch=b, height=h, width=w, seed=seed, vary_per_frame=vary_per_frame
+                    take_plate(), batch=b, height=h, width=w, seed=seed, vary_per_frame=vary_per_frame
                 )
             else:
                 field = procedural_field(

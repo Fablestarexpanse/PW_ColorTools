@@ -126,10 +126,12 @@ _DISPATCH = {
     "saturation": lambda rgb, p: op_saturation(rgb, p.get("amount", 1.0)),
     "warmth": lambda rgb, p: op_warmth(rgb, p.get("amount", 0.0)),
     "curves": op_curves,
-    "tone": lambda rgb, p: look.op_tone(rgb, p),
-    "colour": lambda rgb, p: look.op_colour(rgb, p),
-    "hsl": lambda rgb, p: look.op_hsl(rgb, p),
-    "gradient_map": lambda rgb, p: look.op_gradient_map(rgb, p),
+    # These four already take (rgb, params); wrapping them in a lambda that
+    # forwards both arguments unchanged only hid that.
+    "tone": look.op_tone,
+    "colour": look.op_colour,
+    "hsl": look.op_hsl,
+    "gradient_map": look.op_gradient_map,
 }
 
 

@@ -270,9 +270,12 @@ class PW_Look(io.ComfyNode):
 
         # -- 2. the lattice ---------------------------------------------------
         # The preset spells the gradient map with a prefix, because "amount" and
-        # "blend" on their own would collide with the master controls.
+        # "blend" on their own would collide with the master controls. The blend
+        # follows the amount: a preset that supplies one supplies both, and both
+        # yield to a slider the user has moved — the same rule `val` applies.
+        grad_amount = val("gradient_map_amount", gradient_map, 0.0)
         grad_blend = gradient_blend
-        if "gradient_map_amount" in params and gradient_map == 0.0:
+        if grad_amount != gradient_map:
             grad_blend = params.get("gradient_map_blend", grad_blend)
         grad_stops = params.get("gradient_map_stops")
         if palette:
@@ -304,7 +307,7 @@ class PW_Look(io.ComfyNode):
             LookOp(
                 type="gradient_map",
                 params={
-                    "amount": val("gradient_map_amount", gradient_map, 0.0),
+                    "amount": grad_amount,
                     "blend": grad_blend,
                     "stops": grad_stops or [],
                 },
@@ -317,18 +320,16 @@ class PW_Look(io.ComfyNode):
         # -- 3. glow (spatial) ------------------------------------------------
         glow_amount = val("glow", glow, 0.0)
         if glow_amount > 0.0:
-            glow_params = {
-                "amount": glow_amount,
-                "radius": val("glow_radius", glow_radius, 24.0),
-                "threshold": val("glow_threshold", glow_threshold, 0.65),
-            }
-            graded = apply_glow(
-                graded,
-                amount=glow_params["amount"],
-                radius=glow_params["radius"],
-                threshold=glow_params["threshold"],
+            radius = val("glow_radius", glow_radius, 24.0)
+            threshold = val("glow_threshold", glow_threshold, 0.65)
+            graded = apply_glow(graded, amount=glow_amount, radius=radius, threshold=threshold)
+            ops.append(  # spatial, so not LUT-safe
+                LookOp(
+                    type="glow",
+                    params={"amount": glow_amount, "radius": radius, "threshold": threshold},
+                    lut_safe=False,
+                )
             )
-            ops.append(LookOp(type="glow", params=glow_params, lut_safe=False))  # spatial
 
         # -- 4. mask ------------------------------------------------------------
         graded = _apply_mask(out, graded, mask, image.shape)
