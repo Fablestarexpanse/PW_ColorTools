@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
 import torch
@@ -305,42 +306,62 @@ class Lattice:
     def from_cube(cls, text: str) -> "Lattice":
         """Read an Adobe ``.cube``. 1D LUTs are rejected rather than silently
         promoted, because a promoted 1D LUT looks right until it doesn't."""
-        size: int | None = None
-        dom_min = [0.0, 0.0, 0.0]
-        dom_max = [1.0, 1.0, 1.0]
-        rows: list[tuple[float, float, float]] = []
-        for line in text.splitlines():
-            s = line.strip()
-            if not s or s.startswith("#"):
-                continue
-            head, *rest = s.split()
-            key = head.upper()
-            if key == "LUT_3D_SIZE":
-                size = int(rest[0])
-            elif key == "LUT_1D_SIZE":
-                raise ValueError("1D .cube files are not supported")
-            elif key == "DOMAIN_MIN":
-                dom_min = [float(v) for v in rest[:3]]
-            elif key == "DOMAIN_MAX":
-                dom_max = [float(v) for v in rest[:3]]
-            elif key in ("TITLE", "LUT_3D_INPUT_RANGE"):
-                continue
-            else:
-                try:
-                    rows.append((float(head), float(rest[0]), float(rest[1])))
-                except (ValueError, IndexError):
-                    # Not a data row. .cube is a text format whose files in
-                    # the wild carry vendor keys we do not recognise. This
-                    # is not swallowing an error: if too few rows parse, the
-                    # size check below fails with the count it actually got.
-                    continue
-        if size is None:
+        header, rows = _parse_cube(text)
+        if header.size is None:
             raise ValueError("no LUT_3D_SIZE in .cube file")
+        size = header.size
         if len(rows) != size**3:
             raise ValueError(f".cube declares size {size} ({size**3} rows) but has {len(rows)}")
+
         flat = torch.tensor(rows, dtype=torch.float32)
-        if dom_min != [0.0, 0.0, 0.0] or dom_max != [1.0, 1.0, 1.0]:
-            lo = torch.tensor(dom_min, dtype=torch.float32)
-            hi = torch.tensor(dom_max, dtype=torch.float32)
+        if header.domain_min != [0.0, 0.0, 0.0] or header.domain_max != [1.0, 1.0, 1.0]:
+            lo = torch.tensor(header.domain_min, dtype=torch.float32)
+            hi = torch.tensor(header.domain_max, dtype=torch.float32)
             flat = (flat - lo) / (hi - lo).clamp(min=1e-9)
         return cls.from_flat(flat, size)
+
+
+@dataclass
+class _CubeHeader:
+    """The keywords a ``.cube`` can declare before its data rows."""
+
+    size: int | None = None
+    domain_min: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    domain_max: list[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])
+
+
+def _parse_cube(text: str) -> tuple[_CubeHeader, list[tuple[float, float, float]]]:
+    """Split a ``.cube`` into its declared header and its data rows.
+
+    Separated from `Lattice.from_cube` so that reading the format and deciding
+    whether the result is usable are two jobs rather than one long loop with
+    the validation at the bottom.
+    """
+    header = _CubeHeader()
+    rows: list[tuple[float, float, float]] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        head, *rest = stripped.split()
+        key = head.upper()
+        if key == "LUT_1D_SIZE":
+            raise ValueError("1D .cube files are not supported")
+        if key == "LUT_3D_SIZE":
+            header.size = int(rest[0])
+        elif key == "DOMAIN_MIN":
+            header.domain_min = [float(v) for v in rest[:3]]
+        elif key == "DOMAIN_MAX":
+            header.domain_max = [float(v) for v in rest[:3]]
+        elif key in ("TITLE", "LUT_3D_INPUT_RANGE"):
+            continue
+        else:
+            try:
+                rows.append((float(head), float(rest[0]), float(rest[1])))
+            except (ValueError, IndexError):
+                # Not a data row. `.cube` is a text format whose files in the
+                # wild carry vendor keys we do not recognise. This is not
+                # swallowing an error: if too few rows parse, the size check in
+                # `from_cube` fails with the count it actually got.
+                continue
+    return header, rows
