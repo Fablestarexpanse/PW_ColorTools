@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, get_args
 
 
 __all__ = [
@@ -33,6 +33,7 @@ __all__ = [
     "canonical_json",
     "content_hash",
     "BLEND_MODES",
+    "BlendMode",
 ]
 
 LOOK_SCHEMA = 1
@@ -41,14 +42,16 @@ PALETTE_SCHEMA = 1
 #: Blend modes offered by any node that composites its result over its input.
 #: Deliberately the Photoshop set our audience already knows, not a colour
 #: science set. Order is the order they appear in the UI.
-BLEND_MODES = (
+BlendMode = Literal[
     "normal",
     "multiply",
     "screen",
     "overlay",
     "soft light",
     "add",
-)
+]
+#: Derived from the alias so the two cannot drift.
+BLEND_MODES: tuple[str, ...] = get_args(BlendMode)
 
 
 def canonical_json(obj: Any) -> str:
@@ -90,7 +93,7 @@ class LookOp:
     params: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
     strength: float = 1.0
-    blend: str = "normal"
+    blend: BlendMode = "normal"
     lut_safe: bool = True
 
     def to_dict(self) -> dict[str, Any]:

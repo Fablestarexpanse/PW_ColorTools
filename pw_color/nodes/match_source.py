@@ -21,7 +21,7 @@ import torch
 from comfy_api.latest import io
 
 from ._schema import image_and_look_outputs, look_in
-from ..match import MATCH_SPACES, match_mean_std
+from ..match import MATCH_SPACES, MatchSpace, match_mean_std
 from ..types import Look, LookOp
 
 
@@ -94,7 +94,7 @@ class PW_MatchSource(io.ComfyNode):
         processed: torch.Tensor,
         mask: torch.Tensor | None = None,
         strength: float = 1.0,
-        space: str = "oklab",
+        space: MatchSpace = "oklab",
         max_gain: float = 4.0,
         look_in: dict | None = None,
     ) -> io.NodeOutput:

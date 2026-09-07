@@ -20,6 +20,7 @@ The pipeline, in order, and the order matters:
 from __future__ import annotations
 
 import json
+from typing import Literal, get_args
 
 import torch
 from comfy_api.latest import io
@@ -30,15 +31,19 @@ from ..colour import with_alpha_of
 from ..glow import apply_glow
 from ..lattice import DEFAULT_SIZE, FINAL_SIZE, Lattice
 from ..look import HSL_BANDS, ramp_from_palette
-from ..match import MATCH_TIERS, match_least_squares, match_mean_std
+from ..match import MATCH_TIERS, MatchTier, match_least_squares, match_mean_std
 from ..ops import build_sample_fn
 from ..paths import LOOK_PRESETS
 from ..presets import preset_ids as _preset_ids
 from ..presets import preset_name, resolve_preset
 from ..preview_cache import store_input_for_node
-from ..types import Look, LookOp, Palette
+from ..types import BlendMode, Look, LookOp, Palette
 
-GRADIENT_BLENDS = ("colour", "normal", "soft light", "overlay", "multiply", "screen")
+#: Gradient-map blends. A superset of the master blend modes by one entry:
+#: `colour` keeps the image's lightness and takes the ramp's hue and chroma,
+#: which is what makes a gradient map a grading tool rather than a filter.
+GradientBlend = Literal["colour", "normal", "soft light", "overlay", "multiply", "screen"]
+GRADIENT_BLENDS: tuple[str, ...] = get_args(GradientBlend)
 
 
 def preset_ids() -> list[str]:
@@ -246,15 +251,15 @@ class PW_Look(io.ComfyNode):
         glow_radius: float = 24.0,
         glow_threshold: float = 0.65,
         strength: float = 1.0,
-        blend: str = "normal",
+        blend: BlendMode = "normal",
         hsl: str = "{}",
         gradient_map: float = 0.0,
-        gradient_blend: str = "colour",
+        gradient_blend: GradientBlend = "colour",
         palette: dict | None = None,
         mask: torch.Tensor | None = None,
         reference: torch.Tensor | None = None,
         reference_strength: float = 1.0,
-        reference_mode: str = "mean_std",
+        reference_mode: MatchTier = "mean_std",
         quality: str = "high",
         look_in: dict | None = None,
     ) -> io.NodeOutput:

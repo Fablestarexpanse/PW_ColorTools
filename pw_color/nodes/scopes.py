@@ -12,7 +12,7 @@ import torch
 from comfy_api.latest import io
 
 from ..preview_cache import store_input_for_node
-from ..scopes import SCOPE_MODES, render_scope
+from ..scopes import SCOPE_MODES, ScopeMode, render_scope
 
 
 class PW_Scopes(io.ComfyNode):
@@ -46,7 +46,9 @@ class PW_Scopes(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, image: torch.Tensor, mode: str = "all", width: int = 512, height: int = 256) -> io.NodeOutput:
+    def execute(
+        cls, image: torch.Tensor, mode: ScopeMode = "all", width: int = 512, height: int = 256
+    ) -> io.NodeOutput:
         store_input_for_node(cls, image)
         return io.NodeOutput(image, render_scope(image, mode, width, height))
 

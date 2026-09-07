@@ -22,6 +22,7 @@ import io as _io
 import logging
 import threading
 from collections import OrderedDict
+from typing import Callable
 
 import torch
 
@@ -226,7 +227,7 @@ def get_output(node_id: str) -> dict | None:
     return outputs.get(str(node_id))
 
 
-def _executing_node_id(node_cls, *, quiet: bool) -> str | None:
+def _executing_node_id(node_cls: type, *, quiet: bool) -> str | None:
     """The id of the node currently executing, or ``None`` with a reason logged.
 
     ``cls.hidden`` is populated on a per-execution clone of the node class
@@ -251,7 +252,14 @@ def _executing_node_id(node_cls, *, quiet: bool) -> str | None:
     return None if node_id is None else str(node_id)
 
 
-def _store_for_node(cache_call, node_cls, image, what: str, *, quiet: bool) -> bool:
+def _store_for_node(
+    cache_call: Callable[[str, torch.Tensor | None], None],
+    node_cls: type,
+    image: torch.Tensor | None,
+    what: str,
+    *,
+    quiet: bool,
+) -> bool:
     """Run ``cache_call`` under the executing node's id. Never raises.
 
     Every node used to do this inline behind a bare ``except Exception: pass``,
@@ -270,12 +278,12 @@ def _store_for_node(cache_call, node_cls, image, what: str, *, quiet: bool) -> b
         return False
 
 
-def store_input_for_node(node_cls, image: torch.Tensor | None) -> bool:
+def store_input_for_node(node_cls: type, image: torch.Tensor | None) -> bool:
     """Cache what this node was *given*, keyed by the executing node."""
     return _store_for_node(store, node_cls, image, "input", quiet=False)
 
 
-def store_output_for_node(node_cls, image: torch.Tensor | None) -> bool:
+def store_output_for_node(node_cls: type, image: torch.Tensor | None) -> bool:
     """Cache what this node *produced*, keyed by the executing node."""
     return _store_for_node(store_output, node_cls, image, "output", quiet=True)
 

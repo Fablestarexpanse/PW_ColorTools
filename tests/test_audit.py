@@ -463,3 +463,61 @@ def test_execute_signature_defaults_match_the_schema():
                 )
                 checked += 1
     assert checked > 50, f"expected to compare many defaults, only saw {checked}"
+
+
+def test_every_enumerated_vocabulary_is_a_literal_and_its_tuple_agrees():
+    """A closed set of strings is stated twice: as a Literal the type checker
+    reads, and as a tuple the ComfyUI combo reads.
+
+    They must be the same set. Deriving the tuple with `get_args` is what makes
+    that true by construction, so this checks the derivation is actually being
+    used rather than the two being typed out separately and drifting.
+    """
+    from typing import get_args
+
+    from pw_color import grain, palette, palette_io, scopes
+    from pw_color import match as match_mod
+    from pw_color import types as types_mod
+
+    pairs = [
+        ("BlendMode", types_mod.BlendMode, types_mod.BLEND_MODES),
+        ("MatchSpace", match_mod.MatchSpace, match_mod.MATCH_SPACES),
+        ("MatchTier", match_mod.MatchTier, match_mod.MATCH_TIERS),
+        ("ScopeMode", scopes.ScopeMode, scopes.SCOPE_MODES),
+        ("SortMode", palette.SortMode, palette.SORT_MODES),
+        ("GrainBlendMode", grain.GrainBlendMode, grain.GRAIN_BLEND_MODES),
+        ("PaletteFormat", palette_io.PaletteFormat, tuple(palette_io.PALETTE_FORMATS)),
+    ]
+    for name, alias, values in pairs:
+        assert tuple(get_args(alias)) == tuple(values), (
+            f"{name} and its runtime tuple disagree: the combo would offer "
+            f"{tuple(values)} while the type allows {get_args(alias)}"
+        )
+
+
+def test_node_inputs_from_a_closed_set_are_typed_as_that_set():
+    """A combo input whose options come from a Literal should be annotated with
+    it, not widened back to `str` on the way into execute()."""
+    import inspect
+
+    import pytest as _pytest
+
+    _pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path")
+    from pw_color.nodes import grain, look, match_source, palette, scopes
+
+    expected = {
+        (match_source.PW_MatchSource, "space"),
+        (grain.PW_Grain, "blend"),
+        (look.PW_Look, "blend"),
+        (look.PW_Look, "reference_mode"),
+        (look.PW_Look, "gradient_blend"),
+        (scopes.PW_Scopes, "mode"),
+        (palette.PW_Palette, "sort"),
+        (palette.PW_Palette, "save_format"),
+    }
+    for cls, param in sorted(expected, key=lambda p: (p[0].__name__, p[1])):
+        annotation = inspect.signature(cls.execute).parameters[param].annotation
+        assert annotation != "str", (
+            f"{cls.__name__}.execute widens {param} to str, discarding the "
+            f"vocabulary its combo options are built from"
+        )

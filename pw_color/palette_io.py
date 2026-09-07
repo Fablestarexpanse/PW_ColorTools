@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 import struct
 from pathlib import Path
+from typing import Literal
 
 import torch
 
@@ -31,6 +32,7 @@ from .userdata import user_dir
 
 __all__ = [
     "PALETTE_FORMATS",
+    "PaletteFormat",
     "palette_dir",
     "writable_dir",
     "list_saved",
@@ -41,8 +43,12 @@ __all__ = [
     "safe_name",
 ]
 
-#: Extension -> human label, in the order they appear in the UI.
-PALETTE_FORMATS = {
+#: The formats a palette can be written as.
+PaletteFormat = Literal["json", "ase", "gpl", "txt"]
+
+#: Extension -> human label, in the order they appear in the UI. Keys are
+#: `PaletteFormat`, so the vocabulary and its labels cannot drift apart.
+PALETTE_FORMATS: dict[PaletteFormat, str] = {
     "json": "PW palette (.json) - reopens here, keeps coverage",
     "ase": "Adobe swatch exchange (.ase) - Photoshop, Illustrator, Affinity",
     "gpl": "GIMP palette (.gpl) - GIMP, Krita, Inkscape, Aseprite",
@@ -115,7 +121,7 @@ def _to_txt(palette: Palette) -> bytes:
     return ("\n".join(sw.hex for sw in palette.colors) + "\n").encode("utf-8")
 
 
-def to_bytes(palette: Palette, fmt: str, name: str = "palette") -> bytes:
+def to_bytes(palette: Palette, fmt: PaletteFormat, name: str = "palette") -> bytes:
     if fmt == "json":
         return palette.to_json().encode("utf-8")
     if fmt == "ase":
@@ -127,7 +133,7 @@ def to_bytes(palette: Palette, fmt: str, name: str = "palette") -> bytes:
     raise ValueError(f"unknown palette format {fmt!r}, expected one of {tuple(PALETTE_FORMATS)}")
 
 
-def save_palette(palette: Palette, name: str, fmt: str = "json") -> Path:
+def save_palette(palette: Palette, name: str, fmt: PaletteFormat = "json") -> Path:
     """Write a palette and return the path actually written."""
     if fmt not in PALETTE_FORMATS:
         raise ValueError(f"unknown palette format {fmt!r}")

@@ -11,8 +11,8 @@ from __future__ import annotations
 import torch
 from comfy_api.latest import io
 
-from ..palette import SORT_MODES, extract_palette
-from ..palette_io import PALETTE_FORMATS, list_saved, load_palette, save_palette
+from ..palette import SORT_MODES, SortMode, extract_palette
+from ..palette_io import PaletteFormat, PALETTE_FORMATS, list_saved, load_palette, save_palette
 from ..preview_cache import store_input_for_node
 from ..swatch_strip import render_strip
 from ..types import Palette
@@ -120,7 +120,7 @@ class PW_Palette(io.ComfyNode):
         image: torch.Tensor,
         count: int = 5,
         mask: torch.Tensor | None = None,
-        sort: str = "coverage",
+        sort: SortMode = "coverage",
         ignore_near_black: bool = True,
         ignore_near_white: bool = True,
         weight_by_chroma: bool = False,
@@ -129,7 +129,7 @@ class PW_Palette(io.ComfyNode):
         strip_height: int = 200,
         strip_labels: bool = True,
         save_as: str = "",
-        save_format: str = "json",
+        save_format: PaletteFormat = "json",
         load: str = "none",
         locked: str = "",
     ) -> io.NodeOutput:

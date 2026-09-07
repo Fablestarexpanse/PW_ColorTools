@@ -17,6 +17,7 @@ from ._schema import image_and_look_outputs, look_in
 from ..grain import (
     DEFAULT_CHROMA,
     GRAIN_BLEND_MODES,
+    GrainBlendMode,
     TonalResponse,
     apply_dither,
     apply_grain,
@@ -192,7 +193,7 @@ class PW_Grain(io.ComfyNode):
         shadows: float = 0.20,
         midtones: float = 1.00,
         highlights: float = 0.10,
-        blend: str = "overlay",
+        blend: GrainBlendMode = "overlay",
         opacity: float = 1.0,
         seed: int = 0,
         vary_per_frame: bool = False,
