@@ -309,7 +309,7 @@ def test_input_route_serves_the_cached_jpeg():
     res = _call("/pw_color/input/{node_id}")
     assert res.content_type == "image/jpeg"
     assert res.body[:2] == b"\xff\xd8"
-    assert res.headers["Cache-Control"] == "no-store_input", "a stale preview is worse than none"
+    assert res.headers["Cache-Control"] == "no-store", "a stale preview is worse than none"
 
 
 def test_output_crop_route_serves_png_not_jpeg():

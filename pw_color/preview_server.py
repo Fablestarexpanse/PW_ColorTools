@@ -43,7 +43,7 @@ _log = logging.getLogger("PW_Color")
 #: not claim to.
 _routes_registered = False
 
-_NO_STORE = {"Cache-Control": "no-store_input"}
+_NO_STORE = {"Cache-Control": "no-store"}
 
 
 Handler = Callable[[Any], Awaitable[Any]]
