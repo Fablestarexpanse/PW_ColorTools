@@ -5,42 +5,11 @@ var MIN_FRONTEND = [1, 40, 0];
 function getWidget(node, name) {
   return node.widgets?.find((w) => w.name === name);
 }
-function chainHandler(node, key, handler) {
-  const original = node[key];
-  node[key] = function(...args) {
-    const ours = handler.apply(this, args);
-    const theirs = original ? original.apply(this, args) : void 0;
-    return ours || theirs;
-  };
-}
 function frontendVersion() {
   const raw = globalThis.__COMFYUI_FRONTEND_VERSION__ ?? app?.frontendVersion ?? app?.extensionManager?.version;
   if (typeof raw !== "string") return null;
   const m = raw.match(/(\d+)\.(\d+)\.(\d+)/);
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
-}
-function modernNodesActive() {
-  const lg = globalThis.LiteGraph;
-  if (lg && typeof lg.vueNodesMode === "boolean") return lg.vueNodesMode;
-  try {
-    return app.extensionManager?.setting?.get?.("Comfy.VueNodes.Enabled") === true;
-  } catch {
-    return false;
-  }
-}
-var MODERN_NODES_NOTICE = 'PW Color panels need the Classic node design. Settings \u2192 Nodes 2.0 \u2192 turn off "Modern Node Design".';
-function warnIfModernNodes() {
-  if (!modernNodesActive()) return;
-  console.warn(`[PW Color] ${MODERN_NODES_NOTICE}`);
-  try {
-    app.extensionManager?.toast?.add?.({
-      severity: "warn",
-      summary: "PW Color",
-      detail: MODERN_NODES_NOTICE,
-      life: 12e3
-    });
-  } catch {
-  }
 }
 function warnIfUnsupported() {
   const v = frontendVersion();
@@ -1727,21 +1696,216 @@ function fitPanel(node, panelHeight2, minWidth) {
   node.size[0] = Math.max(node.size[0], minWidth);
   node.size[1] = Math.max(node.size[1], widgetHeight(node) + panelHeight2);
 }
-function ensureHeight(node, panelHeight2, minWidth) {
-  const needed = widgetHeight(node) + panelHeight2;
-  const grew = node.size[1] < needed - 0.5 || node.size[0] < minWidth - 0.5;
-  if (grew) fitPanel(node, panelHeight2, minWidth);
-  return grew;
+
+// src/widgets/panel.ts
+var Panel = class {
+  spec;
+  /**
+   * Graph zoom. The element's CSS box is scaled by the host's transform, so
+   * client coordinates come in scaled; dividing puts them back in node units,
+   * which is what every layout function in the pack works in.
+   */
+  scale = 1;
+  canvas;
+  env;
+  ctx;
+  w = 0;
+  h = 0;
+  pending = false;
+  disposed = false;
+  constructor(canvas, spec, env) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("PW Color panel: no 2D context");
+    this.canvas = canvas;
+    this.spec = spec;
+    this.env = env;
+    this.ctx = ctx;
+  }
+  /** Content width in node units. */
+  get width() {
+    return this.w;
+  }
+  get height() {
+    return this.h;
+  }
+  /** The live context, so hit tests can measure text exactly as drawing did. */
+  get context() {
+    return this.ctx;
+  }
+  /** Set the drawing size in node units and repaint now. */
+  resize(width, height) {
+    this.w = Math.max(0, Math.floor(width));
+    this.h = Math.max(0, Math.floor(height));
+    const dpr = this.env.dpr();
+    this.canvas.width = Math.round(this.w * dpr);
+    this.canvas.height = Math.round(this.h * dpr);
+    this.draw();
+  }
+  draw() {
+    if (this.disposed || this.w === 0 || this.h === 0) return;
+    const dpr = this.env.dpr();
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.ctx.clearRect(0, 0, this.w, this.h);
+    this.spec.draw(this.ctx, { x: 0, y: 0, w: this.w, h: this.h });
+  }
+  /** Repaint before the next frame. A burst of calls costs one draw. */
+  invalidate() {
+    if (this.pending || this.disposed) return;
+    this.pending = true;
+    this.env.schedule(() => {
+      this.pending = false;
+      this.draw();
+    });
+  }
+  dispose() {
+    this.disposed = true;
+  }
+  local(cx, cy) {
+    const r = this.canvas.getBoundingClientRect();
+    return [(cx - r.left) / this.scale, (cy - r.top) / this.scale];
+  }
+  route(handled) {
+    if (handled) this.invalidate();
+    return handled;
+  }
+  pointerDown(cx, cy, m) {
+    const [x, y] = this.local(cx, cy);
+    return this.route(this.spec.onPointerDown?.(x, y, m) ?? false);
+  }
+  pointerMove(cx, cy, m) {
+    const [x, y] = this.local(cx, cy);
+    return this.route(this.spec.onPointerMove?.(x, y, m) ?? false);
+  }
+  pointerUp(cx, cy, m) {
+    const [x, y] = this.local(cx, cy);
+    return this.route(this.spec.onPointerUp?.(x, y, m) ?? false);
+  }
+  wheel(cx, cy, delta) {
+    const [x, y] = this.local(cx, cy);
+    return this.route(this.spec.onWheel?.(x, y, delta) ?? false);
+  }
+};
+var WIDGET_NAME = "pw_panel";
+var panels = /* @__PURE__ */ new WeakMap();
+function panelOf(node) {
+  return panels.get(node);
+}
+function contentWidth(nodeWidth, minWidth) {
+  return Math.max(nodeWidth, minWidth) - 2 * PW.metrics.padding;
+}
+function fitNode(node, panel) {
+  const wanted = panel.spec.height(contentWidth(node.size[0], panel.spec.minWidth));
+  fitPanel(node, wanted, panel.spec.minWidth);
+  node.setSize?.([node.size[0], node.size[1]]);
+  node.setDirtyCanvas?.(true, true);
+}
+function growNode(node, by) {
+  const target = node.size[1] + by;
+  node.size[1] = target;
+  node.setSize?.([node.size[0], target]);
+  node.setDirtyCanvas?.(true, true);
+}
+function elementScale(el) {
+  const w = el.offsetWidth;
+  return w > 0 ? el.getBoundingClientRect().width / w : 1;
+}
+function attachPanel(node, spec) {
+  const box = document.createElement("div");
+  box.dataset.captureWheel = "true";
+  box.style.cssText = "display:flex;flex-direction:column;width:100%;height:100%;";
+  const canvas = document.createElement("canvas");
+  canvas.tabIndex = -1;
+  canvas.style.cssText = "flex:1 1 auto;display:block;width:100%;min-height:0;outline:none;touch-action:none;";
+  box.appendChild(canvas);
+  const panel = new Panel(canvas, spec, {
+    dpr: () => globalThis.devicePixelRatio || 1,
+    schedule: (fn) => requestAnimationFrame(fn)
+  });
+  panels.set(node, panel);
+  const mods = (e) => ({
+    shift: e.shiftKey,
+    double: e.detail === 2,
+    time: e.timeStamp,
+    event: e
+  });
+  canvas.addEventListener("pointerenter", () => canvas.focus({ preventScroll: true }));
+  canvas.addEventListener("pointerdown", (e) => {
+    canvas.focus({ preventScroll: true });
+    panel.scale = elementScale(canvas);
+    if (panel.pointerDown(e.clientX, e.clientY, mods(e))) canvas.setPointerCapture?.(e.pointerId);
+    e.stopPropagation();
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    panel.scale = elementScale(canvas);
+    if (panel.pointerMove(e.clientX, e.clientY, mods(e))) e.stopPropagation();
+  });
+  canvas.addEventListener("pointerup", (e) => {
+    panel.pointerUp(e.clientX, e.clientY, mods(e));
+    if (canvas.hasPointerCapture?.(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+  });
+  canvas.addEventListener(
+    "wheel",
+    (e) => {
+      panel.scale = elementScale(canvas);
+      if (panel.wheel(e.clientX, e.clientY, e.deltaY)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    { passive: false }
+  );
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  const widget = node.addDOMWidget(WIDGET_NAME, "pwpanel", box, {
+    serialize: false,
+    hideOnZoom: false
+  });
+  widget.serialize = false;
+  collapseInternalPreview(node);
+  fitNode(node, panel);
+  const measure = () => {
+    const w = canvas.offsetWidth;
+    const h = canvas.offsetHeight;
+    if (w <= 0 || h <= 0) return;
+    panel.scale = elementScale(canvas);
+    if (w === panel.width && h === panel.height) return;
+    panel.resize(w, h);
+    const deficit = spec.height(w) - h;
+    if (deficit > 0.5) requestAnimationFrame(() => growNode(node, deficit));
+  };
+  const observer = new ResizeObserver(measure);
+  observer.observe(canvas);
+  setTimeout(measure, 0);
+  canvas.addEventListener("pointerenter", measure);
+  const priorRemoved = node.onRemoved;
+  node.onRemoved = function() {
+    observer.disconnect();
+    panel.dispose();
+    panels.delete(node);
+    priorRemoved?.call(this);
+  };
+  return panel;
+}
+function hideSerialisationWidget(node, name) {
+  const w = node.widgets?.find((x) => x.name === name);
+  if (!w) return;
+  w.type = "hidden";
+  w.computeSize = () => [0, -4];
+  w.computeLayoutSize = void 0;
+  const stub = document.createElement("div");
+  stub.style.cssText = "display:none;height:0;";
+  w.element = stub;
+  w.options ??= {};
+  w.options.hidden = true;
 }
 
 // src/nodes/curves.ts
-var ctx0 = () => globalThis.app?.canvas?.ctx ?? null;
 var M = PW.metrics;
 var HEADER_H = 18;
 var TABS_H = M.controlHeight;
-var ROW_H = M.controlHeight;
 var MIN_EDITOR_H = 160;
 var PREVIEW_H = 140;
+var MIN_WIDTH = 360;
+var PANEL_MIN_H = HEADER_H + 4 + PREVIEW_H + M.gapControl + TABS_H + M.gapControl + MIN_EDITOR_H + M.padding;
 var CHANNEL_TABS = [
   { id: "luma", label: "Luma", colour: PW.channel.luma },
   { id: "r", label: "R", colour: PW.channel.r },
@@ -1749,6 +1913,17 @@ var CHANNEL_TABS = [
   { id: "b", label: "B", colour: PW.channel.b }
 ];
 var uis = /* @__PURE__ */ new WeakMap();
+function layout(w, h) {
+  let y = 0;
+  const header = { x: 0, y, w, h: HEADER_H };
+  y += HEADER_H + 4;
+  const preview = { x: 0, y, w, h: PREVIEW_H };
+  y += PREVIEW_H + M.gapControl;
+  const tabs = { x: 0, y, w, h: TABS_H };
+  y += TABS_H + M.gapControl;
+  const editor = { x: 0, y, w, h: Math.max(MIN_EDITOR_H, h - y - M.padding) };
+  return { header, preview, tabs, editor };
+}
 function readState(node) {
   const w = getWidget(node, "curves");
   try {
@@ -1767,7 +1942,7 @@ function writeState(node, ui) {
   if (!w) return;
   const s = ui.editor.state;
   w.value = JSON.stringify({ luma: s.luma, r: s.r, g: s.g, b: s.b });
-  node.setDirtyCanvas?.(true, true);
+  panelOf(node)?.invalidate();
 }
 async function loadHistogram(node, ui) {
   try {
@@ -1781,26 +1956,13 @@ async function loadHistogram(node, ui) {
       g: Float32Array.from(h.g),
       b: Float32Array.from(h.b)
     };
-    node.setDirtyCanvas?.(true, true);
+    panelOf(node)?.invalidate();
   } catch {
   }
 }
 function makeUI(node) {
   const editor = new CurveEditor();
   const tabs = new Segmented(CHANNEL_TABS);
-  const layout3 = (n) => {
-    const x = M.padding;
-    const w = n.size[0] - M.padding * 2;
-    let y = widgetHeight(n) + M.gapSection;
-    const header = { x, y, w, h: HEADER_H };
-    y += HEADER_H + 4;
-    const previewR = { x, y, w, h: PREVIEW_H };
-    y += PREVIEW_H + M.gapControl;
-    const tabsR = { x, y, w, h: TABS_H };
-    y += TABS_H + M.gapControl;
-    const editorH = Math.max(MIN_EDITOR_H, n.size[1] - y - M.gapSection - M.padding);
-    return { header, preview: previewR, tabs: tabsR, editor: { x, y, w, h: editorH } };
-  };
   const preview = new Preview();
   const rebake = (n) => {
     const op = {
@@ -1814,7 +1976,7 @@ function makeUI(node) {
     preview.lattice = Lattice.fromFn(buildSampleFn([op]), DEFAULT_SIZE);
     preview.digest = JSON.stringify([op.params, op.strength]);
   };
-  const ui = { editor, tabs, preview, layout: layout3, rebake };
+  const ui = { editor, tabs, preview, rebake };
   editor.state = readState(node);
   editor.onChange = () => {
     writeState(node, ui);
@@ -1834,6 +1996,7 @@ function registerCurves() {
           if (!ui) return;
           ui.editor.resetAll();
           ui.rebake(node);
+          panelOf(node)?.invalidate();
         }
       }));
       const onCreated = nodeType.prototype.onNodeCreated;
@@ -1841,23 +2004,68 @@ function registerCurves() {
         const r = onCreated?.apply(this, arguments);
         const ui = makeUI(this);
         uis.set(this, ui);
-        for (const name of ["curves"]) {
-          const w = getWidget(this, name);
-          if (!w) continue;
-          w.type = "hidden";
-          w.computeSize = () => [0, -4];
-        }
-        fitPanel(
-          this,
-          HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding,
-          360
-        );
+        hideSerialisationWidget(this, "curves");
+        const reset = () => resetNode(this, {
+          after: () => {
+            ui.editor.resetAll();
+            ui.rebake(this);
+          }
+        });
+        const panel = attachPanel(this, {
+          minWidth: MIN_WIDTH,
+          height: () => PANEL_MIN_H,
+          draw: (ctx, rr) => {
+            const L = layout(rr.w, rr.h);
+            sectionHeader(ctx, "Curves", L.header, BADGE.lut);
+            headerChip(ctx, L.header, "reset", BADGE.lut.label);
+            ui.preview.comparing = isComparing();
+            ui.preview.draw(ctx, L.preview);
+            ui.tabs.draw(ctx, L.tabs);
+            ui.editor.draw(ctx, L.editor);
+          },
+          onPointerDown: (x, y, m) => {
+            const L = layout(panel.width, panel.height);
+            if (hit(headerChip(panel.context, L.header, "reset", BADGE.lut.label), x, y, 3)) {
+              reset();
+              return true;
+            }
+            const tab = ui.tabs.onPointerDown(x, y, L.tabs);
+            if (tab) {
+              ui.editor.channel = tab;
+              return true;
+            }
+            if (hit(L.preview, x, y)) {
+              ui.preview.onPointerDown(x, y, L.preview, m.shift, m.double);
+              return true;
+            }
+            if (hit(L.editor, x, y)) {
+              ui.editor.onPointerDown(x, y, L.editor, m.shift, m.time);
+              return true;
+            }
+            return false;
+          },
+          onPointerMove: (x, y, m) => {
+            const L = layout(panel.width, panel.height);
+            if (ui.preview.onPointerMove(x, y, L.preview)) return true;
+            return ui.editor.onPointerMove(x, y, L.editor, m.shift);
+          },
+          onPointerUp: () => {
+            const editor = ui.editor.onPointerUp();
+            const preview = ui.preview.onPointerUp();
+            return editor || preview;
+          },
+          onWheel: (x, y, delta) => {
+            const L = layout(panel.width, panel.height);
+            return hit(L.preview, x, y) && ui.preview.onWheel(x, y, L.preview, delta);
+          }
+        });
+        const repaint2 = () => panel.invalidate();
         const refresh = () => {
-          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+          void ui.preview.load(this.id, repaint2);
           void loadHistogram(this, ui);
         };
         refresh();
-        const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const stopCompare = onCompareChange(repaint2);
         const stopRun = onRunComplete(refresh);
         const priorRemoved = this.onRemoved;
         this.onRemoved = function() {
@@ -1865,100 +2073,32 @@ function registerCurves() {
           stopRun();
           priorRemoved?.call(this);
         };
-        chainHandler(this, "onDrawForeground", function(ctx) {
-          if (this.flags?.collapsed) return;
-          collapseInternalPreview(this);
-          if (ensureHeight(this, HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding, 360)) this.setDirtyCanvas?.(true, true);
-          const L = ui.layout(this);
-          sectionHeader(ctx, "Curves", L.header, BADGE.lut);
-          headerChip(ctx, L.header, "reset", BADGE.lut.label);
-          ui.preview.comparing = isComparing();
-          ui.preview.draw(ctx, L.preview);
-          ui.tabs.draw(ctx, L.tabs);
-          ui.editor.draw(ctx, L.editor);
-        });
-        chainHandler(this, "onMouseDown", function(e, pos) {
-          const L = ui.layout(this);
-          const [x, y] = pos;
-          const now = e?.timeStamp ?? 0;
-          const shift = !!e?.shiftKey;
-          if (hit(headerChip(ctx0(), L.header, "reset", BADGE.lut.label), x, y, 3)) {
-            resetNode(this, {
-              after: () => {
-                ui.editor.resetAll();
-                ui.rebake(this);
-              }
-            });
-            return true;
-          }
-          const tab = ui.tabs.onPointerDown(x, y, L.tabs);
-          if (tab) {
-            ui.editor.channel = tab;
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          if (hit(L.preview, x, y)) {
-            ui.preview.onPointerDown(x, y, L.preview, shift, e?.detail === 2);
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          if (x >= L.editor.x && x <= L.editor.x + L.editor.w && y >= L.editor.y && y <= L.editor.y + L.editor.h) {
-            ui.editor.onPointerDown(x, y, L.editor, shift, now);
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
-        chainHandler(this, "onMouseWheel", function(e, pos) {
-          const L = ui.layout(this);
-          if (!hit(L.preview, pos[0], pos[1])) return false;
-          const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
-          if (ui.preview.onWheel(pos[0], pos[1], L.preview, delta)) {
-            e?.preventDefault?.();
-            e?.stopPropagation?.();
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
-        chainHandler(this, "onMouseMove", function(e, pos) {
-          const L = ui.layout(this);
-          const shift = !!e?.shiftKey;
-          if (ui.preview.onPointerMove(pos[0], pos[1], L.preview)) {
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          if (ui.editor.onPointerMove(pos[0], pos[1], L.editor, shift)) {
-            this.setDirtyCanvas?.(true, true);
-            return ui.editor.isDragging;
-          }
-          return false;
-        });
-        chainHandler(this, "onMouseUp", function() {
-          const editor = ui.editor.onPointerUp();
-          const preview = ui.preview.onPointerUp();
-          const handled = editor || preview;
-          if (handled) this.setDirtyCanvas?.(true, true);
-          return handled;
-        });
         return r;
       };
       const onConfigure = nodeType.prototype.onConfigure;
       nodeType.prototype.onConfigure = function(info) {
         const r = onConfigure?.apply(this, arguments);
         const ui = uis.get(this);
-        if (ui) {
-          fitPanel(
-            this,
-            HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding,
-            360
-          );
+        const panel = panelOf(this);
+        if (ui && panel) {
+          fitNode(this, panel);
           ui.editor.state = readState(this);
           ui.rebake(this);
           void loadHistogram(this, ui);
-          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+          void ui.preview.load(this.id, () => panel.invalidate());
+          panel.invalidate();
         }
         return r;
+      };
+      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
+      nodeType.prototype.onWidgetChanged = function() {
+        const res = onWidgetChanged?.apply(this, arguments);
+        const ui = uis.get(this);
+        if (ui) {
+          ui.rebake(this);
+          panelOf(this)?.invalidate();
+        }
+        return res;
       };
     }
   });
@@ -1986,21 +2126,45 @@ function attachSpatialPreview(nodeType, opts) {
   nodeType.prototype.onNodeCreated = function() {
     const r = onCreated?.apply(this, arguments);
     const preview = new Preview();
-    const extraTop = (n) => widgetHeight(n) + M2.gapSection;
-    const previewRect = (n) => {
-      const x = M2.padding;
-      const w = n.size[0] - M2.padding * 2;
-      const y = extraTop(n) + (opts.extra?.(n) ?? 0) + HEADER_H2 + 6;
-      return { x, y, w, h: opts.height };
-    };
-    const panelHeight2 = () => (opts.extra?.(this) ?? 0) + HEADER_H2 + 6 + opts.height + M2.gapSection + M2.padding;
-    fitPanel(this, panelHeight2(), opts.minWidth);
+    const extraH = () => opts.extra?.(this) ?? 0;
+    const headerRect = (w) => ({ x: 0, y: extraH(), w, h: HEADER_H2 });
+    const previewRect = (w) => ({ x: 0, y: extraH() + HEADER_H2 + 6, w, h: opts.height });
+    const panel = attachPanel(this, {
+      minWidth: opts.minWidth,
+      height: () => extraH() + HEADER_H2 + 6 + opts.height + M2.padding,
+      draw: (ctx, rr) => {
+        opts.drawExtra?.(ctx, this, 0, rr.w);
+        const hr = headerRect(rr.w);
+        sectionHeader(ctx, opts.label ?? "Result", hr, BADGE.render);
+        headerChip(ctx, hr, "reset", BADGE.render.label);
+        preview.comparing = isComparing();
+        preview.draw(ctx, previewRect(rr.w));
+      },
+      onPointerDown: (x, y, m) => {
+        const hr = headerRect(panel.width);
+        if (hit(headerChip(panel.context, hr, "reset", BADGE.render.label), x, y, 3)) {
+          resetNode(this);
+          return true;
+        }
+        const pr = previewRect(panel.width);
+        if (!hit(pr, x, y)) return false;
+        preview.onPointerDown(x, y, pr, m.shift, m.double);
+        return true;
+      },
+      onPointerMove: (x, y) => preview.onPointerMove(x, y, previewRect(panel.width)),
+      onPointerUp: () => preview.onPointerUp(),
+      onWheel: (x, y, delta) => {
+        const pr = previewRect(panel.width);
+        return hit(pr, x, y) && preview.onWheel(x, y, pr, delta);
+      }
+    });
+    const repaint2 = () => panel.invalidate();
     const refresh = () => {
-      void preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
-      void preview.loadOutput(this.id, () => this.setDirtyCanvas?.(true, true));
+      void preview.load(this.id, repaint2);
+      void preview.loadOutput(this.id, repaint2);
     };
     refresh();
-    const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+    const stopCompare = onCompareChange(repaint2);
     const stopRun = onRunComplete(refresh);
     const priorRemoved = this.onRemoved;
     this.onRemoved = function() {
@@ -2008,53 +2172,6 @@ function attachSpatialPreview(nodeType, opts) {
       stopRun();
       priorRemoved?.call(this);
     };
-    chainHandler(this, "onDrawForeground", function(ctx) {
-      if (this.flags?.collapsed) return;
-      collapseInternalPreview(this);
-      if (ensureHeight(this, panelHeight2(), opts.minWidth)) this.setDirtyCanvas?.(true, true);
-      const x = M2.padding;
-      const w = this.size[0] - M2.padding * 2;
-      opts.drawExtra?.(ctx, this, extraTop(this), w);
-      const pr = previewRect(this);
-      const hr = { x, y: pr.y - HEADER_H2 - 6, w, h: HEADER_H2 };
-      sectionHeader(ctx, opts.label ?? "Result", hr, BADGE.render);
-      headerChip(ctx, hr, "reset", BADGE.render.label);
-      preview.comparing = isComparing();
-      preview.draw(ctx, pr);
-    });
-    chainHandler(this, "onMouseDown", function(e, pos) {
-      const pr = previewRect(this);
-      const hr = { x: M2.padding, y: pr.y - HEADER_H2 - 6, w: this.size[0] - M2.padding * 2, h: HEADER_H2 };
-      const ctx2 = globalThis.app?.canvas?.ctx ?? null;
-      if (hit(headerChip(ctx2, hr, "reset", BADGE.render.label), pos[0], pos[1], 3)) {
-        resetNode(this);
-        return true;
-      }
-      if (!hit(pr, pos[0], pos[1])) return false;
-      preview.onPointerDown(pos[0], pos[1], pr, !!e?.shiftKey, e?.detail === 2);
-      this.setDirtyCanvas?.(true, true);
-      return true;
-    });
-    chainHandler(this, "onMouseMove", function(_e, pos) {
-      if (!preview.onPointerMove(pos[0], pos[1], previewRect(this))) return false;
-      this.setDirtyCanvas?.(true, true);
-      return true;
-    });
-    chainHandler(this, "onMouseUp", function() {
-      if (!preview.onPointerUp()) return false;
-      this.setDirtyCanvas?.(true, true);
-      return true;
-    });
-    chainHandler(this, "onMouseWheel", function(e, pos) {
-      const pr = previewRect(this);
-      if (!hit(pr, pos[0], pos[1])) return false;
-      const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
-      if (!preview.onWheel(pos[0], pos[1], pr, delta)) return false;
-      e?.preventDefault?.();
-      e?.stopPropagation?.();
-      this.setDirtyCanvas?.(true, true);
-      return true;
-    });
     return r;
   };
 }
@@ -2121,15 +2238,14 @@ function registerGrain() {
         label: "Result",
         extra: () => PANEL_H + 18 + M3.gapSection,
         drawExtra: (ctx, node, top, w) => {
-          const x = M3.padding;
-          sectionHeader(ctx, "Tonal response", { x, y: top, w, h: 18 }, BADGE.render);
-          drawResponse(ctx, { x, y: top + 20, w, h: PANEL_H - 20 }, node);
+          sectionHeader(ctx, "Tonal response", { x: 0, y: top, w, h: 18 }, BADGE.render);
+          drawResponse(ctx, { x: 0, y: top + 20, w, h: PANEL_H - 20 }, node);
         }
       });
       const onWidgetChanged = nodeType.prototype.onWidgetChanged;
       nodeType.prototype.onWidgetChanged = function() {
         const res = onWidgetChanged?.apply(this, arguments);
-        this.setDirtyCanvas?.(true, true);
+        panelOf(this)?.invalidate();
         return res;
       };
     }
@@ -2143,6 +2259,14 @@ var THUMB_W = 96;
 var HSL_ROW_H = 22;
 var HEADER_H3 = 18;
 var PREVIEW_H2 = 150;
+var MIN_WIDTH2 = 420;
+var HSL_SWATCH_W = 46;
+var HSL_TRACK_X = HSL_SWATCH_W + 62;
+var HSL_TRACK_PAD = HSL_TRACK_X + 40;
+var uis2 = /* @__PURE__ */ new WeakMap();
+function repaint(node) {
+  panelOf(node)?.invalidate();
+}
 function refreshPreview(node) {
   const ui = uis2.get(node);
   if (!ui) return;
@@ -2180,8 +2304,8 @@ function refreshPreview(node) {
   ];
   ui.preview.lattice = Lattice.fromFn(buildSampleFn(ops), DEFAULT_SIZE);
   ui.preview.digest = JSON.stringify(ops);
+  repaint(node);
 }
-var uis2 = /* @__PURE__ */ new WeakMap();
 var presets = null;
 async function loadPresets() {
   if (presets) return presets;
@@ -2302,7 +2426,7 @@ function buildThumbnails(node, ui) {
     ctx.putImageData(out, 0, 0);
     ui.thumbs.set(preset.id, cv);
   }
-  node.setDirtyCanvas?.(true, true);
+  repaint(node);
 }
 async function loadSource(node, ui) {
   try {
@@ -2343,7 +2467,7 @@ function writeHsl(node, bands) {
     if (v.hue || v.sat || v.lum) trimmed[k] = v;
   }
   w.value = JSON.stringify(trimmed);
-  node.setDirtyCanvas?.(true, true);
+  repaint(node);
 }
 var HSL_AXES = ["hue", "sat", "lum"];
 function drawHsl(ctx, r, node, ui) {
@@ -2352,13 +2476,12 @@ function drawHsl(ctx, r, node, ui) {
   const rowW = r.w;
   HSL_BANDS.forEach(([name, hue], i) => {
     const y = r.y + i * HSL_ROW_H;
-    const swatchW = 46;
     const c = 0.11;
     const rgbCss = oklchCss(0.62, c, hue);
-    fillPanel(ctx, { x: r.x, y: y + 3, w: swatchW, h: HSL_ROW_H - 7 }, rgbCss, M4.radiusControl);
-    text(ctx, name, r.x + swatchW + 8, y + HSL_ROW_H / 2, { colour: PW.color.textDim });
-    const trackX = r.x + swatchW + 62;
-    const trackW = rowW - (swatchW + 62) - 40;
+    fillPanel(ctx, { x: r.x, y: y + 3, w: HSL_SWATCH_W, h: HSL_ROW_H - 7 }, rgbCss, M4.radiusControl);
+    text(ctx, name, r.x + HSL_SWATCH_W + 8, y + HSL_ROW_H / 2, { colour: PW.color.textDim });
+    const trackX = r.x + HSL_TRACK_X;
+    const trackW = rowW - HSL_TRACK_PAD;
     const track = { x: trackX, y: y + HSL_ROW_H / 2 - 2, w: trackW, h: 4 };
     fillPanel(ctx, track, PW.color.well, 2);
     const v = bands[name][axis] ?? 0;
@@ -2388,28 +2511,25 @@ function gridShape(width, count) {
   const cellW = (width - 8 * (cols - 1)) / cols;
   return { cols, rows, cellW };
 }
-function layout(node, ui) {
-  const x = M4.padding;
-  const w = node.size[0] - M4.padding * 2;
+function layout2(w, ui) {
   const { rows } = gridShape(w, Math.max(1, ui.presets.length));
-  let y = widgetHeight(node) + M4.gapSection;
-  const previewHeader = { x, y, w, h: HEADER_H3 };
+  let y = 0;
+  const previewHeader = { x: 0, y, w, h: HEADER_H3 };
   y += HEADER_H3 + 6;
-  const preview = { x, y, w, h: PREVIEW_H2 };
+  const preview = { x: 0, y, w, h: PREVIEW_H2 };
   y += PREVIEW_H2 + M4.gapSection;
-  const presetHeader = { x, y, w, h: HEADER_H3 };
+  const presetHeader = { x: 0, y, w, h: HEADER_H3 };
   y += HEADER_H3 + 6;
-  const strip = { x, y, w, h: rows * CELL_H + (rows - 1) * 6 };
+  const strip = { x: 0, y, w, h: rows * CELL_H + (rows - 1) * 6 };
   y += strip.h + M4.gapSection;
-  const hslHeader = { x, y, w, h: HEADER_H3 };
+  const hslHeader = { x: 0, y, w, h: HEADER_H3 };
   y += HEADER_H3 + 6;
-  const hslTabs = { x, y, w: Math.min(w, 220), h: 22 };
-  const hslRows = { x, y: y + 26, w, h: HSL_BANDS.length * HSL_ROW_H };
+  const hslTabs = { x: 0, y, w: Math.min(w, 220), h: 22 };
+  const hslRows = { x: 0, y: y + 26, w, h: HSL_BANDS.length * HSL_ROW_H };
   return { previewHeader, preview, presetHeader, strip, hslHeader, hslTabs, hslRows };
 }
-function panelHeight(node, ui) {
-  const w = Math.max(200, node.size[0] - M4.padding * 2);
-  const { rows } = gridShape(w, Math.max(1, ui.presets.length));
+function panelHeight(w, ui) {
+  const { rows } = gridShape(Math.max(200, w), Math.max(1, ui.presets.length));
   const strip = rows * CELL_H + (rows - 1) * 6;
   const base = HEADER_H3 + 6 + PREVIEW_H2 + M4.gapSection + HEADER_H3 + 6 + strip + M4.gapSection + HEADER_H3 + 6 + M4.padding;
   return base + (ui.hslOpen ? 26 + HSL_BANDS.length * HSL_ROW_H + M4.gapControl : 0);
@@ -2419,21 +2539,18 @@ function registerLook() {
     name: "pw.color.look",
     async beforeRegisterNodeDef(nodeType, nodeData) {
       if (nodeData?.name !== "PW_Look") return;
-      addResetMenu(nodeType, (node) => ({
+      const resetOptions = (node) => ({
         after: () => {
           const hsl = getWidget(node, "hsl");
           if (hsl) hsl.value = "{}";
           refreshPreview(node);
         }
-      }));
+      });
+      addResetMenu(nodeType, resetOptions);
       const onCreated = nodeType.prototype.onNodeCreated;
       nodeType.prototype.onNodeCreated = function() {
         const r = onCreated?.apply(this, arguments);
-        const hw = getWidget(this, "hsl");
-        if (hw) {
-          hw.type = "hidden";
-          hw.computeSize = () => [0, -4];
-        }
+        hideSerialisationWidget(this, "hsl");
         const ui = {
           presets: [],
           thumbs: /* @__PURE__ */ new Map(),
@@ -2443,26 +2560,90 @@ function registerLook() {
           preview: new Preview()
         };
         uis2.set(this, ui);
-        fitPanel(this, panelHeight(this, ui), 420);
+        const panel = attachPanel(this, {
+          minWidth: MIN_WIDTH2,
+          height: (w) => panelHeight(w, ui),
+          draw: (ctx, rr) => {
+            const L = layout2(rr.w, ui);
+            sectionHeader(ctx, "Preview", L.previewHeader, BADGE.lut);
+            headerChip(ctx, L.previewHeader, "reset", BADGE.lut.label);
+            ui.preview.comparing = isComparing();
+            ui.preview.draw(ctx, L.preview);
+            sectionHeader(ctx, "Presets, on your image", L.presetHeader, BADGE.lut);
+            drawStrip(ctx, L.strip, this, ui);
+            const arrow = ui.hslOpen ? "v" : ">";
+            sectionHeader(ctx, `${arrow}  Colour mixer`, L.hslHeader, BADGE.lut);
+            if (ui.hslOpen) {
+              ui.hslTab.draw(ctx, L.hslTabs);
+              drawHsl(ctx, L.hslRows, this, ui);
+            }
+          },
+          onPointerDown: (x, y, m) => {
+            const L = layout2(panel.width, ui);
+            if (hit(headerChip(panel.context, L.previewHeader, "reset", BADGE.lut.label), x, y, 3)) {
+              resetNode(this, resetOptions(this));
+              return true;
+            }
+            if (hit(L.preview, x, y)) {
+              ui.preview.onPointerDown(x, y, L.preview, m.shift, m.double);
+              return true;
+            }
+            if (hit(L.hslHeader, x, y)) {
+              ui.hslOpen = !ui.hslOpen;
+              fitNode(this, panel);
+              return true;
+            }
+            if (hit(L.strip, x, y) && ui.presets.length) {
+              const { cols, cellW } = gridShape(L.strip.w, ui.presets.length);
+              const col = Math.floor((x - L.strip.x) / (cellW + 8));
+              const row = Math.floor((y - L.strip.y) / (CELL_H + 6));
+              const preset = col >= 0 && col < cols ? ui.presets[row * cols + col] : void 0;
+              if (preset) applyPreset(this, preset);
+              return true;
+            }
+            if (ui.hslOpen) {
+              if (ui.hslTab.onPointerDown(x, y, L.hslTabs)) return true;
+              const row = Math.floor((y - L.hslRows.y) / HSL_ROW_H);
+              if (row >= 0 && row < HSL_BANDS.length && x >= L.hslRows.x && x <= L.hslRows.x + L.hslRows.w) {
+                const bands = readHsl(this);
+                const name = HSL_BANDS[row][0];
+                const trackX = L.hslRows.x + HSL_TRACK_X;
+                const trackW = L.hslRows.w - HSL_TRACK_PAD;
+                const v = Math.max(-1, Math.min(1, (x - trackX) / trackW * 2 - 1));
+                bands[name][ui.hslTab.selected] = m.double ? 0 : Math.round(v * 100) / 100;
+                writeHsl(this, bands);
+                refreshPreview(this);
+                return true;
+              }
+            }
+            return false;
+          },
+          onPointerMove: (x, y) => ui.preview.onPointerMove(x, y, layout2(panel.width, ui).preview),
+          onPointerUp: () => ui.preview.onPointerUp(),
+          onWheel: (x, y, delta) => {
+            const L = layout2(panel.width, ui);
+            return hit(L.preview, x, y) && ui.preview.onWheel(x, y, L.preview, delta);
+          }
+        });
         refreshPreview(this);
         const refresh = () => {
           void loadSource(this, ui);
-          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+          void ui.preview.load(this.id, () => panel.invalidate());
         };
         void (async () => {
           ui.presets = await loadPresets();
-          fitPanel(this, panelHeight(this, ui), 420);
+          fitNode(this, panel);
           refresh();
-          this.setDirtyCanvas?.(true, true);
+          panel.invalidate();
         })();
         const priorConfigure = this.onConfigure;
         this.onConfigure = function(info) {
           const res = priorConfigure?.call(this, info);
-          fitPanel(this, panelHeight(this, ui), 420);
+          fitNode(this, panel);
           refreshPreview(this);
           return res;
         };
-        const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const stopCompare = onCompareChange(() => panel.invalidate());
         const stopRun = onRunComplete(refresh);
         const priorRemoved = this.onRemoved;
         this.onRemoved = function() {
@@ -2470,116 +2651,12 @@ function registerLook() {
           stopRun();
           priorRemoved?.call(this);
         };
-        chainHandler(this, "onResize", function() {
-          const needed = panelHeight(this, ui);
-          const min = widgetHeight(this) + needed;
-          if (this.size[1] < min) this.size[1] = min;
-        });
-        chainHandler(this, "onDrawForeground", function(ctx) {
-          if (this.flags?.collapsed) return;
-          collapseInternalPreview(this);
-          if (ensureHeight(this, panelHeight(this, ui), 420)) this.setDirtyCanvas?.(true, true);
-          const L = layout(this, ui);
-          sectionHeader(ctx, "Preview", L.previewHeader, BADGE.lut);
-          headerChip(ctx, L.previewHeader, "reset", BADGE.lut.label);
-          ui.preview.comparing = isComparing();
-          ui.preview.draw(ctx, L.preview);
-          sectionHeader(ctx, "Presets, on your image", L.presetHeader, BADGE.lut);
-          drawStrip(ctx, L.strip, this, ui);
-          const arrow = ui.hslOpen ? "v" : ">";
-          sectionHeader(ctx, `${arrow}  Colour mixer`, L.hslHeader, BADGE.lut);
-          if (ui.hslOpen) {
-            ui.hslTab.draw(ctx, L.hslTabs);
-            drawHsl(ctx, L.hslRows, this, ui);
-          }
-        });
-        chainHandler(this, "onMouseDown", function(e, pos) {
-          const L = layout(this, ui);
-          const [x, y] = pos;
-          const lctx = globalThis.app?.canvas?.ctx ?? null;
-          if (hit(headerChip(lctx, L.previewHeader, "reset", BADGE.lut.label), x, y, 3)) {
-            resetNode(this, {
-              after: () => {
-                const hsl = getWidget(this, "hsl");
-                if (hsl) hsl.value = "{}";
-                refreshPreview(this);
-              }
-            });
-            return true;
-          }
-          if (hit(L.preview, x, y)) {
-            ui.preview.onPointerDown(x, y, L.preview, !!e?.shiftKey, e?.detail === 2);
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          if (hit(L.hslHeader, x, y)) {
-            ui.hslOpen = !ui.hslOpen;
-            fitPanel(this, panelHeight(this, ui), 420);
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          if (hit(L.strip, x, y) && ui.presets.length) {
-            const { cols, cellW } = gridShape(L.strip.w, ui.presets.length);
-            const col = Math.floor((x - L.strip.x) / (cellW + 8));
-            const row = Math.floor((y - L.strip.y) / (CELL_H + 6));
-            const preset = col >= 0 && col < cols ? ui.presets[row * cols + col] : void 0;
-            if (preset) applyPreset(this, preset);
-            return true;
-          }
-          if (ui.hslOpen) {
-            if (ui.hslTab.onPointerDown(x, y, L.hslTabs)) {
-              this.setDirtyCanvas?.(true, true);
-              return true;
-            }
-            const row = Math.floor((y - L.hslRows.y) / HSL_ROW_H);
-            if (row >= 0 && row < HSL_BANDS.length && x >= L.hslRows.x && x <= L.hslRows.x + L.hslRows.w) {
-              const bands = readHsl(this);
-              const name = HSL_BANDS[row][0];
-              const trackX = L.hslRows.x + 108;
-              const trackW = L.hslRows.w - 148;
-              const v = Math.max(-1, Math.min(1, (x - trackX) / trackW * 2 - 1));
-              bands[name][ui.hslTab.selected] = e?.detail === 2 ? 0 : Math.round(v * 100) / 100;
-              writeHsl(this, bands);
-              refreshPreview(this);
-              return true;
-            }
-          }
-          return false;
-        });
-        chainHandler(this, "onMouseMove", function(_e, pos) {
-          const L = layout(this, ui);
-          if (ui.preview.onPointerMove(pos[0], pos[1], L.preview)) {
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
-        chainHandler(this, "onMouseUp", function() {
-          if (ui.preview.onPointerUp()) {
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
-        chainHandler(this, "onMouseWheel", function(e, pos) {
-          const L = layout(this, ui);
-          if (!hit(L.preview, pos[0], pos[1])) return false;
-          const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
-          if (ui.preview.onWheel(pos[0], pos[1], L.preview, delta)) {
-            e?.preventDefault?.();
-            e?.stopPropagation?.();
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
         return r;
       };
       const onWidgetChanged = nodeType.prototype.onWidgetChanged;
       nodeType.prototype.onWidgetChanged = function() {
         const res = onWidgetChanged?.apply(this, arguments);
         refreshPreview(this);
-        this.setDirtyCanvas?.(true, true);
         return res;
       };
     }
@@ -2703,7 +2780,10 @@ function toAseBytes(colors) {
 var M5 = PW.metrics;
 var STRIP_H = 92;
 var BLOCK_H = 44;
-var PANEL_BLOCK = STRIP_H + 22 + M5.gapSection + M5.padding;
+var HEADER_H4 = 18;
+var PANEL_BLOCK = HEADER_H4 + 4 + STRIP_H + 22 + M5.padding;
+var MIN_WIDTH3 = 360;
+var TOAST_MS = 1400;
 var palettes = /* @__PURE__ */ new WeakMap();
 var toasts = /* @__PURE__ */ new WeakMap();
 var saved = /* @__PURE__ */ new WeakMap();
@@ -2782,11 +2862,8 @@ function drawHeader(ctx, r, node) {
     align: "center"
   });
 }
-function layout2(node) {
-  const x = M5.padding;
-  const w = node.size[0] - M5.padding * 2;
-  const y = node.size[1] - STRIP_H - M5.padding - 22;
-  return { header: { x, y, w, h: 18 }, strip: { x, y: y + 22, w, h: STRIP_H } };
+function layout3(w) {
+  return { header: { x: 0, y: 0, w, h: HEADER_H4 }, strip: { x: 0, y: HEADER_H4 + 4, w, h: STRIP_H } };
 }
 function download(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -2828,8 +2905,9 @@ var EXPORT_FORMATS = [
   { id: "css", label: "CSS variables (.css)" }
 ];
 function toast(node, message) {
-  toasts.set(node, { text: message, until: performance.now() + 1400 });
-  node.setDirtyCanvas?.(true, true);
+  toasts.set(node, { text: message, until: performance.now() + TOAST_MS });
+  panelOf(node)?.invalidate();
+  setTimeout(() => panelOf(node)?.invalidate(), TOAST_MS + 50);
 }
 async function copyHex(node, hex) {
   try {
@@ -2854,7 +2932,7 @@ function registerPalette() {
           const path = detail?.output?.pw_saved?.[0];
           if (path) saved.set(node, String(path));
           else saved.delete(node);
-          node.setDirtyCanvas?.(true, true);
+          panelOf(node)?.invalidate();
         } catch {
         }
       });
@@ -2864,71 +2942,66 @@ function registerPalette() {
       const onCreated = nodeType.prototype.onNodeCreated;
       nodeType.prototype.onNodeCreated = function() {
         const r = onCreated?.apply(this, arguments);
-        const lockedWidget = getWidget(this, "locked");
-        if (lockedWidget) {
-          lockedWidget.type = "hidden";
-          lockedWidget.computeSize = () => [0, -4];
-        }
-        fitPanel(this, PANEL_BLOCK, 360);
-        chainHandler(this, "onDrawForeground", function(ctx) {
-          if (this.flags?.collapsed) return;
-          const L = layout2(this);
-          drawHeader(ctx, L.header, this);
-          drawPalette(ctx, L.strip, this);
-          drawSavedHint(ctx, L.strip, this);
-          const t = toasts.get(this);
-          if (t && performance.now() < t.until) {
-            text(ctx, t.text, L.header.x + L.header.w / 2, L.strip.y + L.strip.h + 12, {
-              colour: PW.color.accent,
-              align: "center"
-            });
-          }
-        });
-        chainHandler(this, "onMouseDown", function(e, pos) {
-          const L = layout2(this);
-          const [x, y] = pos;
-          const ctx = app.canvas?.ctx;
-          if (!ctx) return false;
-          const { lock, exp } = headerChips(ctx, L.header, this);
-          if (hit(exp, x, y)) {
-            if (!palettes.get(this)) {
-              toast(this, "nothing to export \u2014 run the graph first");
-              return true;
+        hideSerialisationWidget(this, "locked");
+        const panel = attachPanel(this, {
+          minWidth: MIN_WIDTH3,
+          height: () => PANEL_BLOCK,
+          draw: (ctx, rr) => {
+            const L = layout3(rr.w);
+            drawHeader(ctx, L.header, this);
+            drawPalette(ctx, L.strip, this);
+            drawSavedHint(ctx, L.strip, this);
+            const t = toasts.get(this);
+            if (t && performance.now() < t.until) {
+              text(ctx, t.text, L.header.x + L.header.w / 2, L.strip.y + L.strip.h + 12, {
+                colour: PW.color.accent,
+                align: "center"
+              });
             }
-            new globalThis.LiteGraph.ContextMenu(
-              EXPORT_FORMATS.map((f) => ({ content: f.label, callback: () => exportPalette(this, f.id) })),
-              { event: e, title: "Export palette" }
-            );
-            return true;
-          }
-          if (hit(lock, x, y)) {
-            const w = getWidget(this, "locked");
-            if (!w) return true;
-            if (String(w.value ?? "").trim()) {
-              w.value = "";
-              toast(this, "unlocked");
-            } else {
-              const data2 = palettes.get(this);
-              if (!data2) {
-                toast(this, "nothing to lock \u2014 run the graph first");
+          },
+          onPointerDown: (x, y, m) => {
+            const L = layout3(panel.width);
+            const { lock, exp } = headerChips(panel.context, L.header, this);
+            if (hit(exp, x, y)) {
+              if (!palettes.get(this)) {
+                toast(this, "nothing to export \u2014 run the graph first");
                 return true;
               }
-              w.value = JSON.stringify(data2);
-              toast(this, "locked");
-            }
-            w.callback?.(w.value);
-            return true;
-          }
-          const data = palettes.get(this);
-          if (data && y >= L.strip.y && y <= L.strip.y + BLOCK_H) {
-            const cells = swatchRects(L.strip, data.colors.length);
-            const i = cells.findIndex((c) => x >= c.x && x <= c.x + c.w);
-            if (i >= 0) {
-              void copyHex(this, data.colors[i].hex);
+              new globalThis.LiteGraph.ContextMenu(
+                EXPORT_FORMATS.map((f) => ({ content: f.label, callback: () => exportPalette(this, f.id) })),
+                { event: m.event, title: "Export palette" }
+              );
               return true;
             }
+            if (hit(lock, x, y)) {
+              const w = getWidget(this, "locked");
+              if (!w) return true;
+              if (String(w.value ?? "").trim()) {
+                w.value = "";
+                toast(this, "unlocked");
+              } else {
+                const data2 = palettes.get(this);
+                if (!data2) {
+                  toast(this, "nothing to lock \u2014 run the graph first");
+                  return true;
+                }
+                w.value = JSON.stringify(data2);
+                toast(this, "locked");
+              }
+              w.callback?.(w.value);
+              return true;
+            }
+            const data = palettes.get(this);
+            if (data && y >= L.strip.y && y <= L.strip.y + BLOCK_H) {
+              const cells = swatchRects(L.strip, data.colors.length);
+              const i = cells.findIndex((c) => x >= c.x && x <= c.x + c.w);
+              if (i >= 0) {
+                void copyHex(this, data.colors[i].hex);
+                return true;
+              }
+            }
+            return false;
           }
-          return false;
         });
         return r;
       };
@@ -2969,21 +3042,11 @@ app.registerExtension({
   name: "pw.color",
   async setup() {
     warnIfUnsupported();
-    warnIfModernNodes();
     registerPortColours();
   },
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (!PW_NODES.includes(nodeData?.name)) return;
     addResetMenu(nodeType);
-  },
-  nodeCreated(node) {
-    const cls = node?.constructor?.comfyClass ?? node?.type;
-    if (!PW_NODES.includes(cls) || !modernNodesActive()) return;
-    if (typeof node.addDOMWidget !== "function") return;
-    const el = document.createElement("div");
-    el.textContent = MODERN_NODES_NOTICE;
-    el.style.cssText = "padding:8px 10px;font:12px/1.4 system-ui,sans-serif;color:#E0A44C;background:#1F1B2E;border:1px solid #3A3450;border-radius:6px;white-space:normal;";
-    node.addDOMWidget("pw_modern_nodes_notice", "div", el, { serialize: false, hideOnZoom: false });
   }
 });
 registerCurves();

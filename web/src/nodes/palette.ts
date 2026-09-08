@@ -9,19 +9,25 @@
  * recomputed here — k-means in the browser would be a third implementation of
  * maths we already have twice, and unlike the lattice there is no interactive
  * reason to want it client-side.
+ *
+ * Hosted on a DOM widget (`widgets/panel.ts`), so it renders in both node
+ * designs. All coordinates below are panel-local.
  */
 
 import { toAseBytes, toGpl } from '../core/palette_export.ts';
-import { api, app, chainHandler, getWidget, type NodeLike } from '../comfy.ts';
+import { api, app, getWidget, type NodeLike } from '../comfy.ts';
 import { PW } from '../theme.ts';
 import { fillPanel, hit, roundRect, text, type Ctx, type Rect } from '../widgets/draw.ts';
-import { fitPanel } from '../widgets/layout.ts';
+import { attachPanel, hideSerialisationWidget, panelOf, type Panel } from '../widgets/panel.ts';
 
 const M = PW.metrics;
 const STRIP_H = 92;
 const BLOCK_H = 44;
+const HEADER_H = 18;
 /** Header + strip + the saved-path hint line, plus breathing room. */
-const PANEL_BLOCK = STRIP_H + 22 + M.gapSection + M.padding;
+const PANEL_BLOCK = HEADER_H + 4 + STRIP_H + 22 + M.padding;
+const MIN_WIDTH = 360;
+const TOAST_MS = 1400;
 
 interface Swatch {
   hex: string;
@@ -137,11 +143,8 @@ function drawHeader(ctx: Ctx, r: Rect, node: NodeLike): void {
   });
 }
 
-function layout(node: NodeLike) {
-  const x = M.padding;
-  const w = node.size[0] - M.padding * 2;
-  const y = node.size[1] - STRIP_H - M.padding - 22;
-  return { header: { x, y, w, h: 18 }, strip: { x, y: y + 22, w, h: STRIP_H } };
+function layout(w: number): { header: Rect; strip: Rect } {
+  return { header: { x: 0, y: 0, w, h: HEADER_H }, strip: { x: 0, y: HEADER_H + 4, w, h: STRIP_H } };
 }
 
 // -- export ------------------------------------------------------------------
@@ -195,9 +198,11 @@ const EXPORT_FORMATS: { id: string; label: string }[] = [
   { id: 'css', label: 'CSS variables (.css)' },
 ];
 
+/** A short message under the strip; repaints once more when it expires. */
 function toast(node: NodeLike, message: string): void {
-  toasts.set(node, { text: message, until: performance.now() + 1400 });
-  node.setDirtyCanvas?.(true, true);
+  toasts.set(node, { text: message, until: performance.now() + TOAST_MS });
+  panelOf(node)?.invalidate();
+  setTimeout(() => panelOf(node)?.invalidate(), TOAST_MS + 50);
 }
 
 async function copyHex(node: NodeLike, hex: string): Promise<void> {
@@ -228,7 +233,7 @@ export function registerPalette(): void {
           const path = detail?.output?.pw_saved?.[0];
           if (path) saved.set(node, String(path));
           else saved.delete(node);
-          node.setDirtyCanvas?.(true, true);
+          panelOf(node)?.invalidate();
         } catch {
           /* malformed payload — leave the previous palette on screen */
         }
@@ -242,84 +247,73 @@ export function registerPalette(): void {
       nodeType.prototype.onNodeCreated = function (this: NodeLike) {
         const r = onCreated?.apply(this, arguments as any);
 
-        const lockedWidget = getWidget(this, 'locked');
-        if (lockedWidget) {
-          lockedWidget.type = 'hidden';
-          lockedWidget.computeSize = () => [0, -4];
-        }
+        hideSerialisationWidget(this, 'locked');
 
-        // Size from LiteGraph's own widget measurement plus the panel we draw,
-        // rather than from a guessed constant. Guessing means the panel
-        // collides with the widgets the moment an input is added — which is
-        // exactly what happened when save/load landed.
-        fitPanel(this, PANEL_BLOCK, 360);
+        const panel: Panel = attachPanel(this, {
+          minWidth: MIN_WIDTH,
+          height: () => PANEL_BLOCK,
+          draw: (ctx, rr) => {
+            const L = layout(rr.w);
+            drawHeader(ctx, L.header, this);
+            drawPalette(ctx, L.strip, this);
+            drawSavedHint(ctx, L.strip, this);
 
-        chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
-          if ((this as any).flags?.collapsed) return;
-          const L = layout(this);
-          drawHeader(ctx, L.header, this);
-          drawPalette(ctx, L.strip, this);
-          drawSavedHint(ctx, L.strip, this);
-
-          const t = toasts.get(this);
-          if (t && performance.now() < t.until) {
-            text(ctx, t.text, L.header.x + L.header.w / 2, L.strip.y + L.strip.h + 12, {
-              colour: PW.color.accent,
-              align: 'center',
-            });
-          }
-        });
-
-        chainHandler(this, 'onMouseDown', function (this: NodeLike, e: any, pos: [number, number]) {
-          const L = layout(this);
-          const [x, y] = pos;
-          const ctx = (app as any).canvas?.ctx;
-          if (!ctx) return false;
-          const { lock, exp } = headerChips(ctx, L.header, this);
-
-          if (hit(exp, x, y)) {
-            if (!palettes.get(this)) {
-              toast(this, 'nothing to export — run the graph first');
-              return true;
+            const t = toasts.get(this);
+            if (t && performance.now() < t.until) {
+              text(ctx, t.text, L.header.x + L.header.w / 2, L.strip.y + L.strip.h + 12, {
+                colour: PW.color.accent,
+                align: 'center',
+              });
             }
-            // A menu rather than a fixed format: which file you want depends
-            // entirely on where the palette is going.
-            new (globalThis as any).LiteGraph.ContextMenu(
-              EXPORT_FORMATS.map((f) => ({ content: f.label, callback: () => exportPalette(this, f.id) })),
-              { event: e, title: 'Export palette' },
-            );
-            return true;
-          }
+          },
+          onPointerDown: (x, y, m) => {
+            const L = layout(panel.width);
+            const { lock, exp } = headerChips(panel.context, L.header, this);
 
-          if (hit(lock, x, y)) {
-            const w = getWidget(this, 'locked');
-            if (!w) return true;
-            if (String(w.value ?? '').trim()) {
-              w.value = '';
-              toast(this, 'unlocked');
-            } else {
-              const data = palettes.get(this);
-              if (!data) {
-                toast(this, 'nothing to lock — run the graph first');
+            if (hit(exp, x, y)) {
+              if (!palettes.get(this)) {
+                toast(this, 'nothing to export — run the graph first');
                 return true;
               }
-              w.value = JSON.stringify(data);
-              toast(this, 'locked');
-            }
-            w.callback?.(w.value);
-            return true;
-          }
-
-          const data = palettes.get(this);
-          if (data && y >= L.strip.y && y <= L.strip.y + BLOCK_H) {
-            const cells = swatchRects(L.strip, data.colors.length);
-            const i = cells.findIndex((c) => x >= c.x && x <= c.x + c.w);
-            if (i >= 0) {
-              void copyHex(this, data.colors[i].hex);
+              // A menu rather than a fixed format: which file you want depends
+              // entirely on where the palette is going.
+              new (globalThis as any).LiteGraph.ContextMenu(
+                EXPORT_FORMATS.map((f) => ({ content: f.label, callback: () => exportPalette(this, f.id) })),
+                { event: m.event, title: 'Export palette' },
+              );
               return true;
             }
-          }
-          return false;
+
+            if (hit(lock, x, y)) {
+              const w = getWidget(this, 'locked');
+              if (!w) return true;
+              if (String(w.value ?? '').trim()) {
+                w.value = '';
+                toast(this, 'unlocked');
+              } else {
+                const data = palettes.get(this);
+                if (!data) {
+                  toast(this, 'nothing to lock — run the graph first');
+                  return true;
+                }
+                w.value = JSON.stringify(data);
+                toast(this, 'locked');
+              }
+              w.callback?.(w.value);
+              return true;
+            }
+
+            const data = palettes.get(this);
+            if (data && y >= L.strip.y && y <= L.strip.y + BLOCK_H) {
+              const cells = swatchRects(L.strip, data.colors.length);
+              const i = cells.findIndex((c) => x >= c.x && x <= c.x + c.w);
+              if (i >= 0) {
+                void copyHex(this, data.colors[i].hex);
+                return true;
+              }
+            }
+            return false;
+          },
         });
 
         return r;

@@ -430,13 +430,9 @@ has. The web bundle is committed, so a plain clone works with no node toolchain.
 **Requires** ComfyUI 0.27+ / frontend 1.40+. Developed and tested against
 ComfyUI 0.29.x with frontend 1.47.11 and 1.49.6.
 
-**Node design.** The pack draws its panels — curve editor, previews, preset
-strip, colour mixer — on the LiteGraph canvas. Frontend 1.49 added an opt-in
-**Modern Node Design (Nodes 2.0)** that renders nodes as DOM elements and does
-not paint canvas panels, so with it on every PW node is blank below its
-sliders. The nodes still run; they just cannot show you anything. The pack
-warns on load and puts the reason on each node. Until the panels are ported to
-that renderer, keep *Settings → Nodes 2.0 → Modern Node Design* off.
+**Node design.** Panels are hosted on DOM widgets, so the pack renders the
+same in the Classic node design and in *Modern Node Design (Nodes 2.0)*.
+Tested on frontend 1.47.11 (Classic) and 1.49.6 (both).
 
 ---
 

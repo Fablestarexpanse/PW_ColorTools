@@ -9,10 +9,13 @@
  *
  * The eight-band HSL mixer is drawn here too, collapsed by default because it
  * is the least-used control on a busy node.
+ *
+ * Hosted on a DOM widget (`widgets/panel.ts`), so it renders in both node
+ * designs. All coordinates below are panel-local.
  */
 
 import { fetchPw } from '../fetch.ts';
-import { type NodeLike, app, chainHandler, getWidget } from '../comfy.ts';
+import { type NodeLike, app, getWidget } from '../comfy.ts';
 import { BADGE, PW } from '../theme.ts';
 import { Preview } from '../canvas/preview.ts';
 import { Lattice, DEFAULT_SIZE } from '../core/lattice.ts';
@@ -22,7 +25,7 @@ import { isComparing, onCompareChange } from '../widgets/compare.ts';
 import { onRunComplete } from '../widgets/run_events.ts';
 import { addResetMenu, defaultFor, resetNode } from '../widgets/reset.ts';
 import { fillPanel, headerChip, hit, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
-import { collapseInternalPreview, ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
+import { attachPanel, fitNode, hideSerialisationWidget, panelOf, type Panel } from '../widgets/panel.ts';
 import { Segmented } from '../widgets/segmented.ts';
 
 const M = PW.metrics;
@@ -31,6 +34,11 @@ const THUMB_W = 96;
 const HSL_ROW_H = 22;
 const HEADER_H = 18;
 const PREVIEW_H = 150;
+const MIN_WIDTH = 420;
+/** Where a mixer row's track starts and how much of the row it leaves for label and readout. */
+const HSL_SWATCH_W = 46;
+const HSL_TRACK_X = HSL_SWATCH_W + 62;
+const HSL_TRACK_PAD = HSL_TRACK_X + 40;
 
 interface Preset { id: string; name: string; description: string; params: Record<string, any> }
 
@@ -42,6 +50,12 @@ interface LookUI {
   hslOpen: boolean;
   hslTab: Segmented;
   preview: Preview;
+}
+
+const uis = new WeakMap<object, LookUI>();
+
+function repaint(node: NodeLike): void {
+  panelOf(node)?.invalidate();
 }
 
 /** Rebuild the lattice the live preview samples from the node's current state. */
@@ -77,9 +91,8 @@ function refreshPreview(node: NodeLike): void {
   ];
   ui.preview.lattice = Lattice.fromFn(buildSampleFn(ops) as any, DEFAULT_SIZE);
   ui.preview.digest = JSON.stringify(ops);
+  repaint(node);
 }
-
-const uis = new WeakMap<object, LookUI>();
 
 // -- presets ------------------------------------------------------------------
 
@@ -231,7 +244,7 @@ function buildThumbnails(node: NodeLike, ui: LookUI): void {
     ctx.putImageData(out, 0, 0);
     ui.thumbs.set(preset.id, cv);
   }
-  node.setDirtyCanvas?.(true, true);
+  repaint(node);
 }
 
 /** Fetch the node's cached input and downscale it to thumbnail size. */
@@ -279,7 +292,7 @@ function writeHsl(node: NodeLike, bands: Record<string, any>): void {
     if (v.hue || v.sat || v.lum) trimmed[k] = v;
   }
   w.value = JSON.stringify(trimmed);
-  node.setDirtyCanvas?.(true, true);
+  repaint(node);
 }
 
 const HSL_AXES = ['hue', 'sat', 'lum'] as const;
@@ -290,15 +303,14 @@ function drawHsl(ctx: Ctx, r: Rect, node: NodeLike, ui: LookUI): void {
   const rowW = r.w;
   HSL_BANDS.forEach(([name, hue], i) => {
     const y = r.y + i * HSL_ROW_H;
-    const swatchW = 46;
     // The band's own hue as the label swatch, so the row is self-describing.
     const c = 0.11;
     const rgbCss = oklchCss(0.62, c, hue);
-    fillPanel(ctx, { x: r.x, y: y + 3, w: swatchW, h: HSL_ROW_H - 7 }, rgbCss, M.radiusControl);
-    text(ctx, name, r.x + swatchW + 8, y + HSL_ROW_H / 2, { colour: PW.color.textDim });
+    fillPanel(ctx, { x: r.x, y: y + 3, w: HSL_SWATCH_W, h: HSL_ROW_H - 7 }, rgbCss, M.radiusControl);
+    text(ctx, name, r.x + HSL_SWATCH_W + 8, y + HSL_ROW_H / 2, { colour: PW.color.textDim });
 
-    const trackX = r.x + swatchW + 62;
-    const trackW = rowW - (swatchW + 62) - 40;
+    const trackX = r.x + HSL_TRACK_X;
+    const trackW = rowW - HSL_TRACK_PAD;
     const track = { x: trackX, y: y + HSL_ROW_H / 2 - 2, w: trackW, h: 4 };
     fillPanel(ctx, track, PW.color.well, 2);
     const v = bands[name][axis] ?? 0;
@@ -335,29 +347,26 @@ function gridShape(width: number, count: number): { cols: number; rows: number; 
   return { cols, rows, cellW };
 }
 
-function layout(node: NodeLike, ui: LookUI) {
-  const x = M.padding;
-  const w = node.size[0] - M.padding * 2;
+function layout(w: number, ui: LookUI) {
   const { rows } = gridShape(w, Math.max(1, ui.presets.length));
-  let y = widgetHeight(node) + M.gapSection;
-  const previewHeader = { x, y, w, h: HEADER_H };
+  let y = 0;
+  const previewHeader = { x: 0, y, w, h: HEADER_H };
   y += HEADER_H + 6;
-  const preview = { x, y, w, h: PREVIEW_H };
+  const preview = { x: 0, y, w, h: PREVIEW_H };
   y += PREVIEW_H + M.gapSection;
-  const presetHeader = { x, y, w, h: HEADER_H };
+  const presetHeader = { x: 0, y, w, h: HEADER_H };
   y += HEADER_H + 6;
-  const strip = { x, y, w, h: rows * CELL_H + (rows - 1) * 6 };
+  const strip = { x: 0, y, w, h: rows * CELL_H + (rows - 1) * 6 };
   y += strip.h + M.gapSection;
-  const hslHeader = { x, y, w, h: HEADER_H };
+  const hslHeader = { x: 0, y, w, h: HEADER_H };
   y += HEADER_H + 6;
-  const hslTabs = { x, y, w: Math.min(w, 220), h: 22 };
-  const hslRows = { x, y: y + 26, w, h: HSL_BANDS.length * HSL_ROW_H };
+  const hslTabs = { x: 0, y, w: Math.min(w, 220), h: 22 };
+  const hslRows = { x: 0, y: y + 26, w, h: HSL_BANDS.length * HSL_ROW_H };
   return { previewHeader, preview, presetHeader, strip, hslHeader, hslTabs, hslRows };
 }
 
-function panelHeight(node: NodeLike, ui: LookUI): number {
-  const w = Math.max(200, node.size[0] - M.padding * 2);
-  const { rows } = gridShape(w, Math.max(1, ui.presets.length));
+function panelHeight(w: number, ui: LookUI): number {
+  const { rows } = gridShape(Math.max(200, w), Math.max(1, ui.presets.length));
   const strip = rows * CELL_H + (rows - 1) * 6;
   const base =
     HEADER_H + 6 + PREVIEW_H + M.gapSection + HEADER_H + 6 + strip + M.gapSection + HEADER_H + 6 + M.padding;
@@ -373,20 +382,20 @@ export function registerLook(): void {
 
       // `hsl` is a hidden serialisation widget, so its default is an empty
       // object; resetting it is what actually clears the colour mixer.
-      addResetMenu(nodeType, (node) => ({
+      const resetOptions = (node: NodeLike) => ({
         after: () => {
           const hsl = getWidget(node, 'hsl');
           if (hsl) hsl.value = '{}';
           refreshPreview(node);
         },
-      }));
+      });
+      addResetMenu(nodeType, resetOptions);
 
       const onCreated = nodeType.prototype.onNodeCreated;
       nodeType.prototype.onNodeCreated = function (this: NodeLike) {
         const r = onCreated?.apply(this, arguments as any);
 
-        const hw = getWidget(this, 'hsl');
-        if (hw) { hw.type = 'hidden'; hw.computeSize = () => [0, -4]; }
+        hideSerialisationWidget(this, 'hsl');
 
         const ui: LookUI = {
           presets: [], thumbs: new Map(), source: null, hslOpen: false,
@@ -394,21 +403,91 @@ export function registerLook(): void {
           preview: new Preview(),
         };
         uis.set(this, ui);
-        fitPanel(this, panelHeight(this, ui), 420);
+
+        const panel: Panel = attachPanel(this, {
+          minWidth: MIN_WIDTH,
+          height: (w) => panelHeight(w, ui),
+          draw: (ctx, rr) => {
+            const L = layout(rr.w, ui);
+            sectionHeader(ctx, 'Preview', L.previewHeader, BADGE.lut);
+            headerChip(ctx, L.previewHeader, 'reset', BADGE.lut.label);
+            ui.preview.comparing = isComparing();
+            ui.preview.draw(ctx, L.preview);
+
+            sectionHeader(ctx, 'Presets, on your image', L.presetHeader, BADGE.lut);
+            drawStrip(ctx, L.strip, this, ui);
+
+            const arrow = ui.hslOpen ? 'v' : '>';
+            sectionHeader(ctx, `${arrow}  Colour mixer`, L.hslHeader, BADGE.lut);
+            if (ui.hslOpen) {
+              ui.hslTab.draw(ctx, L.hslTabs);
+              drawHsl(ctx, L.hslRows, this, ui);
+            }
+          },
+          onPointerDown: (x, y, m) => {
+            const L = layout(panel.width, ui);
+
+            if (hit(headerChip(panel.context, L.previewHeader, 'reset', BADGE.lut.label), x, y, 3)) {
+              resetNode(this, resetOptions(this));
+              return true;
+            }
+            if (hit(L.preview, x, y)) {
+              ui.preview.onPointerDown(x, y, L.preview, m.shift, m.double);
+              return true;
+            }
+            if (hit(L.hslHeader, x, y)) {
+              ui.hslOpen = !ui.hslOpen;
+              fitNode(this, panel);
+              return true;
+            }
+            if (hit(L.strip, x, y) && ui.presets.length) {
+              const { cols, cellW } = gridShape(L.strip.w, ui.presets.length);
+              const col = Math.floor((x - L.strip.x) / (cellW + 8));
+              const row = Math.floor((y - L.strip.y) / (CELL_H + 6));
+              const preset = col >= 0 && col < cols ? ui.presets[row * cols + col] : undefined;
+              if (preset) applyPreset(this, preset);
+              return true;
+            }
+            if (ui.hslOpen) {
+              if (ui.hslTab.onPointerDown(x, y, L.hslTabs)) return true;
+              const row = Math.floor((y - L.hslRows.y) / HSL_ROW_H);
+              if (row >= 0 && row < HSL_BANDS.length && x >= L.hslRows.x && x <= L.hslRows.x + L.hslRows.w) {
+                const bands = readHsl(this);
+                const name = HSL_BANDS[row][0];
+                const trackX = L.hslRows.x + HSL_TRACK_X;
+                const trackW = L.hslRows.w - HSL_TRACK_PAD;
+                const v = Math.max(-1, Math.min(1, ((x - trackX) / trackW) * 2 - 1));
+                // Double-click resets the axis, matching every other control.
+                (bands as any)[name][ui.hslTab.selected] = m.double ? 0 : Math.round(v * 100) / 100;
+                writeHsl(this, bands);
+                refreshPreview(this);
+                return true;
+              }
+            }
+            return false;
+          },
+          onPointerMove: (x, y) => ui.preview.onPointerMove(x, y, layout(panel.width, ui).preview),
+          onPointerUp: () => ui.preview.onPointerUp(),
+          onWheel: (x, y, delta) => {
+            const L = layout(panel.width, ui);
+            return hit(L.preview, x, y) && ui.preview.onWheel(x, y, L.preview, delta);
+          },
+        });
+
         refreshPreview(this);
 
         const refresh = () => {
           void loadSource(this, ui);
-          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+          void ui.preview.load(this.id, () => panel.invalidate());
         };
 
         void (async () => {
           ui.presets = await loadPresets();
           // Re-fit: the strip's row count depends on how many presets exist,
           // and they arrive over HTTP after the node has already been sized.
-          fitPanel(this, panelHeight(this, ui), 420);
+          fitNode(this, panel);
           refresh();
-          this.setDirtyCanvas?.(true, true);
+          panel.invalidate();
         })();
 
         // A saved workflow applies its stored size after creation, so re-fit
@@ -416,12 +495,12 @@ export function registerLook(): void {
         const priorConfigure = this.onConfigure;
         this.onConfigure = function (this: NodeLike, info: any) {
           const res = priorConfigure?.call(this, info);
-          fitPanel(this, panelHeight(this, ui), 420);
+          fitNode(this, panel);
           refreshPreview(this);
           return res;
         };
 
-        const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const stopCompare = onCompareChange(() => panel.invalidate());
         // PW Look returns no `ui` data, so `onExecuted` never fires for it and
         // the prompt-level events are the only signal that a proxy now exists.
         const stopRun = onRunComplete(refresh);
@@ -432,123 +511,6 @@ export function registerLook(): void {
           priorRemoved?.call(this);
         };
 
-        // Resizing changes how many thumbnails fit per row, so the panel
-        // height has to follow the width.
-        chainHandler(this, 'onResize', function (this: NodeLike) {
-          const needed = panelHeight(this, ui);
-          const min = widgetHeight(this) + needed;
-          if (this.size[1] < min) this.size[1] = min;
-        });
-
-        chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
-          if ((this as any).flags?.collapsed) return;
-          collapseInternalPreview(this);
-          if (ensureHeight(this, panelHeight(this, ui), 420)) this.setDirtyCanvas?.(true, true);
-          const L = layout(this, ui);
-
-          sectionHeader(ctx, 'Preview', L.previewHeader, BADGE.lut);
-          headerChip(ctx, L.previewHeader, 'reset', BADGE.lut.label);
-          ui.preview.comparing = isComparing();
-          ui.preview.draw(ctx, L.preview);
-
-          sectionHeader(ctx, 'Presets, on your image', L.presetHeader, BADGE.lut);
-          drawStrip(ctx, L.strip, this, ui);
-
-          const arrow = ui.hslOpen ? 'v' : '>';
-          sectionHeader(ctx, `${arrow}  Colour mixer`, L.hslHeader, BADGE.lut);
-          if (ui.hslOpen) {
-            ui.hslTab.draw(ctx, L.hslTabs);
-            drawHsl(ctx, L.hslRows, this, ui);
-          }
-        });
-
-        chainHandler(this, 'onMouseDown', function (this: NodeLike, e: any, pos: [number, number]) {
-          const L = layout(this, ui);
-          const [x, y] = pos;
-
-          const lctx = (globalThis as any).app?.canvas?.ctx ?? null;
-          if (hit(headerChip(lctx, L.previewHeader, 'reset', BADGE.lut.label), x, y, 3)) {
-            resetNode(this, {
-              after: () => {
-                const hsl = getWidget(this, 'hsl');
-                if (hsl) hsl.value = '{}';
-                refreshPreview(this);
-              },
-            });
-            return true;
-          }
-
-          if (hit(L.preview, x, y)) {
-            ui.preview.onPointerDown(x, y, L.preview, !!e?.shiftKey, e?.detail === 2);
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-
-          if (hit(L.hslHeader, x, y)) {
-            ui.hslOpen = !ui.hslOpen;
-            fitPanel(this, panelHeight(this, ui), 420);
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-
-          if (hit(L.strip, x, y) && ui.presets.length) {
-            const { cols, cellW } = gridShape(L.strip.w, ui.presets.length);
-            const col = Math.floor((x - L.strip.x) / (cellW + 8));
-            const row = Math.floor((y - L.strip.y) / (CELL_H + 6));
-            const preset = col >= 0 && col < cols ? ui.presets[row * cols + col] : undefined;
-            if (preset) applyPreset(this, preset);
-            return true;
-          }
-
-          if (ui.hslOpen) {
-            if (ui.hslTab.onPointerDown(x, y, L.hslTabs)) { this.setDirtyCanvas?.(true, true); return true; }
-            const row = Math.floor((y - L.hslRows.y) / HSL_ROW_H);
-            if (row >= 0 && row < HSL_BANDS.length && x >= L.hslRows.x && x <= L.hslRows.x + L.hslRows.w) {
-              const bands = readHsl(this);
-              const name = HSL_BANDS[row][0];
-              const trackX = L.hslRows.x + 108;
-              const trackW = L.hslRows.w - 148;
-              const v = Math.max(-1, Math.min(1, ((x - trackX) / trackW) * 2 - 1));
-              // Double-click resets the axis, matching every other control.
-              (bands as any)[name][ui.hslTab.selected] = e?.detail === 2 ? 0 : Math.round(v * 100) / 100;
-              writeHsl(this, bands);
-              refreshPreview(this);
-              return true;
-            }
-          }
-          return false;
-        });
-
-        chainHandler(this, 'onMouseMove', function (this: NodeLike, _e: any, pos: [number, number]) {
-          const L = layout(this, ui);
-          if (ui.preview.onPointerMove(pos[0], pos[1], L.preview)) {
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
-
-        chainHandler(this, 'onMouseUp', function (this: NodeLike) {
-          if (ui.preview.onPointerUp()) {
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
-
-        chainHandler(this, 'onMouseWheel', function (this: NodeLike, e: any, pos: [number, number]) {
-          const L = layout(this, ui);
-          if (!hit(L.preview, pos[0], pos[1])) return false;
-          const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
-          if (ui.preview.onWheel(pos[0], pos[1], L.preview, delta)) {
-            e?.preventDefault?.();
-            e?.stopPropagation?.();
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
-
         return r;
       };
 
@@ -557,7 +519,6 @@ export function registerLook(): void {
       nodeType.prototype.onWidgetChanged = function (this: NodeLike) {
         const res = onWidgetChanged?.apply(this, arguments as any);
         refreshPreview(this);
-        this.setDirtyCanvas?.(true, true);
         return res;
       };
     },

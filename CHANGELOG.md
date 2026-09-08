@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+
+- **Modern Node Design (Nodes 2.0) support.** Every panel — curve editor,
+  previews, preset strip, colour mixer, grain response, palette — is now
+  hosted on a DOM widget and draws in both node designs. Saved workflows are
+  unchanged: the widgets that carry state keep their place and their values.
+
+### Fixed
+
+- In Modern Node Design the 2.0.1 notice widget appended an empty entry to
+  each PW node's saved widget values. The notice is gone with the limitation.
+
 ## 2.0.1
 
 ### Fixed

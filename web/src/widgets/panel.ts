@@ -199,9 +199,26 @@ export function fitNode(node: NodeLike, panel: Panel): void {
   node.setDirtyCanvas?.(true, true);
 }
 
-function graphScale(): number {
-  const s = (globalThis as any).app?.canvas?.ds?.scale;
-  return typeof s === 'number' && s > 0 ? s : 1;
+/** Make the node `by` pixels taller. Never shrinks. */
+function growNode(node: NodeLike, by: number): void {
+  const target = node.size[1] + by;
+  node.size[1] = target;
+  (node as any).setSize?.([node.size[0], target]);
+  node.setDirtyCanvas?.(true, true);
+}
+
+/**
+ * The zoom the host applied to this element, from the element itself.
+ *
+ * Both renderers lay the node out in node units and then scale it with a CSS
+ * transform, so `offsetWidth` is node units and the bounding box is screen
+ * pixels. Reading `app.canvas.ds.scale` instead was wrong mid-animation: on
+ * load the view zooms to fit over several frames, and a transform one frame
+ * behind the number made every panel look too short and grow without end.
+ */
+function elementScale(el: HTMLElement): number {
+  const w = el.offsetWidth;
+  return w > 0 ? el.getBoundingClientRect().width / w : 1;
 }
 
 /**
@@ -237,13 +254,13 @@ export function attachPanel(node: NodeLike, spec: PanelSpec): Panel {
   canvas.addEventListener('pointerenter', () => canvas.focus({ preventScroll: true }));
   canvas.addEventListener('pointerdown', (e) => {
     canvas.focus({ preventScroll: true });
-    panel.scale = graphScale();
+    panel.scale = elementScale(canvas);
     if (panel.pointerDown(e.clientX, e.clientY, mods(e))) canvas.setPointerCapture?.(e.pointerId);
     // A press on the panel is never the start of a node drag.
     e.stopPropagation();
   });
   canvas.addEventListener('pointermove', (e) => {
-    panel.scale = graphScale();
+    panel.scale = elementScale(canvas);
     if (panel.pointerMove(e.clientX, e.clientY, mods(e))) e.stopPropagation();
   });
   canvas.addEventListener('pointerup', (e) => {
@@ -253,7 +270,7 @@ export function attachPanel(node: NodeLike, spec: PanelSpec): Panel {
   canvas.addEventListener(
     'wheel',
     (e) => {
-      panel.scale = graphScale();
+      panel.scale = elementScale(canvas);
       if (panel.wheel(e.clientX, e.clientY, e.deltaY)) {
         e.preventDefault();
         e.stopPropagation();
@@ -273,19 +290,29 @@ export function attachPanel(node: NodeLike, spec: PanelSpec): Panel {
   collapseInternalPreview(node);
   fitNode(node, panel);
 
-  const observer = new ResizeObserver(() => {
-    const r = canvas.getBoundingClientRect();
-    const scale = graphScale();
-    const w = r.width / scale;
-    const h = r.height / scale;
+  const measure = () => {
+    const w = canvas.offsetWidth;
+    const h = canvas.offsetHeight;
     if (w <= 0 || h <= 0) return;
-    panel.scale = scale;
+    panel.scale = elementScale(canvas);
+    if (w === panel.width && h === panel.height) return;
     panel.resize(w, h);
-    // Growing the node from inside the observer changes layout in the same
-    // pass, which the browser reports as an observer loop. Grow next frame.
-    if (h < spec.height(w) - 0.5) requestAnimationFrame(() => fitNode(node, panel));
-  });
+    // The panel came back shorter than it asked for. `fitNode` guessed the
+    // widget block from LiteGraph's layout, and the Modern renderer's rows
+    // are taller than that, so grow by the measured deficit instead: both
+    // renderers hand the extra straight to this widget. Done next frame,
+    // because changing layout from inside the observer is reported as an
+    // observer loop.
+    const deficit = spec.height(w) - h;
+    if (deficit > 0.5) requestAnimationFrame(() => growNode(node, deficit));
+  };
+  const observer = new ResizeObserver(measure);
   observer.observe(canvas);
+  // Observer callbacks ride the rendering pipeline, which a background tab
+  // does not run; a timer still does, so the first measurement never waits
+  // for a paint. Harmless when the observer got there first.
+  setTimeout(measure, 0);
+  canvas.addEventListener('pointerenter', measure);
 
   const priorRemoved = node.onRemoved;
   node.onRemoved = function (this: NodeLike) {

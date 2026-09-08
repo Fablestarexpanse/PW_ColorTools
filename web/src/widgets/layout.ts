@@ -1,13 +1,15 @@
 /**
  * Node sizing helpers.
  *
- * Every node in the pack draws a custom panel *below* ComfyUI's own widgets.
- * The height that panel needs is ours to know; the height the widgets need is
- * LiteGraph's. Guessing the second with a constant works until someone adds an
- * input, at which point the panel silently sits on top of a widget — which is
+ * Every node in the pack hosts a panel on a DOM widget *below* ComfyUI's own
+ * widgets. The height that panel needs is ours to know; the height the widgets
+ * need is LiteGraph's. Guessing the second with a constant works until someone
+ * adds an input, at which point the panel silently overlaps a widget — which is
  * precisely what happened when save/load landed on PW Palette.
  *
- * So: ask LiteGraph, then add our own block.
+ * So: ask LiteGraph, then add our own block. Both renderers give the DOM
+ * widget whatever is left below the widgets, so the node height is the panel's
+ * height.
  */
 
 import { PW } from '../theme.ts';
@@ -87,22 +89,4 @@ export function widgetHeight(node: NodeLike): number {
 export function fitPanel(node: NodeLike, panelHeight: number, minWidth: number): void {
   node.size[0] = Math.max(node.size[0], minWidth);
   node.size[1] = Math.max(node.size[1], widgetHeight(node) + panelHeight);
-}
-
-/**
- * Enforce the minimum height at draw time.
- *
- * Doing this only at creation is not enough: LiteGraph applies a saved
- * workflow's size *after* `onConfigure` runs, so a node saved before a panel
- * existed comes back too short and clips it. Checking while drawing is
- * self-correcting whatever the ordering, converges in one frame, and costs a
- * comparison.
- *
- * @returns true if the node was resized, so the caller can request a redraw.
- */
-export function ensureHeight(node: NodeLike, panelHeight: number, minWidth: number): boolean {
-  const needed = widgetHeight(node) + panelHeight;
-  const grew = node.size[1] < needed - 0.5 || node.size[0] < minWidth - 0.5;
-  if (grew) fitPanel(node, panelHeight, minWidth);
-  return grew;
 }
