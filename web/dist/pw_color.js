@@ -1711,6 +1711,8 @@ var Panel = class {
   ctx;
   w = 0;
   h = 0;
+  /** Backing pixels per node unit, fixed at the last resize. */
+  dpr = 1;
   pending = false;
   disposed = false;
   constructor(canvas, spec, env) {
@@ -1732,18 +1734,22 @@ var Panel = class {
   get context() {
     return this.ctx;
   }
+  /** Backing pixels per node unit in use. */
+  get density() {
+    return this.dpr;
+  }
   /** Set the drawing size in node units and repaint now. */
   resize(width, height) {
     this.w = Math.max(0, Math.floor(width));
     this.h = Math.max(0, Math.floor(height));
-    const dpr = this.env.dpr();
-    this.canvas.width = Math.round(this.w * dpr);
-    this.canvas.height = Math.round(this.h * dpr);
+    this.dpr = this.env.dpr();
+    this.canvas.width = Math.round(this.w * this.dpr);
+    this.canvas.height = Math.round(this.h * this.dpr);
     this.draw();
   }
   draw() {
     if (this.disposed || this.w === 0 || this.h === 0) return;
-    const dpr = this.env.dpr();
+    const dpr = this.dpr;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.ctx.clearRect(0, 0, this.w, this.h);
     this.spec.draw(this.ctx, { x: 0, y: 0, w: this.w, h: this.h });
@@ -1817,8 +1823,9 @@ function attachPanel(node, spec) {
   canvas.tabIndex = -1;
   canvas.style.cssText = "flex:1 1 auto;display:block;width:100%;min-height:0;outline:none;touch-action:none;";
   box.appendChild(canvas);
+  const density = () => Math.min(3, Math.max(1, (globalThis.devicePixelRatio || 1) * elementScale(canvas)));
   const panel = new Panel(canvas, spec, {
-    dpr: () => globalThis.devicePixelRatio || 1,
+    dpr: density,
     schedule: (fn) => requestAnimationFrame(fn)
   });
   panels.set(node, panel);
@@ -1867,7 +1874,8 @@ function attachPanel(node, spec) {
     const h = canvas.offsetHeight;
     if (w <= 0) return;
     panel.scale = elementScale(canvas);
-    if (h > 0 && !(w === panel.width && h === panel.height)) panel.resize(w, h);
+    const stale = w !== panel.width || h !== panel.height || Math.abs(density() - panel.density) > 0.01;
+    if (h > 0 && stale) panel.resize(w, h);
     const deficit = spec.height(w) - h;
     if (deficit > 0.5) requestAnimationFrame(() => growNode(node, deficit));
   };

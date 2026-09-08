@@ -81,6 +81,8 @@ export class Panel {
   private readonly ctx: Ctx;
   private w = 0;
   private h = 0;
+  /** Backing pixels per node unit, fixed at the last resize. */
+  private dpr = 1;
   private pending = false;
   private disposed = false;
 
@@ -107,19 +109,26 @@ export class Panel {
     return this.ctx;
   }
 
+  /** Backing pixels per node unit in use. */
+  get density(): number {
+    return this.dpr;
+  }
+
   /** Set the drawing size in node units and repaint now. */
   resize(width: number, height: number): void {
     this.w = Math.max(0, Math.floor(width));
     this.h = Math.max(0, Math.floor(height));
-    const dpr = this.env.dpr();
-    this.canvas.width = Math.round(this.w * dpr);
-    this.canvas.height = Math.round(this.h * dpr);
+    this.dpr = this.env.dpr();
+    this.canvas.width = Math.round(this.w * this.dpr);
+    this.canvas.height = Math.round(this.h * this.dpr);
     this.draw();
   }
 
   draw(): void {
     if (this.disposed || this.w === 0 || this.h === 0) return;
-    const dpr = this.env.dpr();
+    // The transform must match the backing store set at resize, not whatever
+    // the density is now; a zoom between the two would otherwise skew it.
+    const dpr = this.dpr;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.ctx.clearRect(0, 0, this.w, this.h);
     this.spec.draw(this.ctx, { x: 0, y: 0, w: this.w, h: this.h });
@@ -239,8 +248,12 @@ export function attachPanel(node: NodeLike, spec: PanelSpec): Panel {
     'flex:1 1 auto;display:block;width:100%;min-height:0;outline:none;touch-action:none;';
   box.appendChild(canvas);
 
+  // Backing density follows the graph zoom as well as the screen, so a panel
+  // zoomed to 200% is drawn at 200% rather than upscaled from node units.
+  // Capped: a 16x zoom on a 4K screen must not allocate a 60-megapixel canvas.
+  const density = () => Math.min(3, Math.max(1, (globalThis.devicePixelRatio || 1) * elementScale(canvas)));
   const panel = new Panel(canvas, spec, {
-    dpr: () => globalThis.devicePixelRatio || 1,
+    dpr: density,
     schedule: (fn) => requestAnimationFrame(fn),
   });
   panels.set(node, panel);
@@ -298,7 +311,11 @@ export function attachPanel(node: NodeLike, spec: PanelSpec): Panel {
     // widget nothing, and the deficit below is how it gets its space.
     if (w <= 0) return;
     panel.scale = elementScale(canvas);
-    if (h > 0 && !(w === panel.width && h === panel.height)) panel.resize(w, h);
+    // Re-allocate on a size change, and on a zoom change: the observer does
+    // not see transforms, so zoom is caught here via pointerenter and the
+    // timer, which is why a panel sharpens as the pointer reaches it.
+    const stale = w !== panel.width || h !== panel.height || Math.abs(density() - panel.density) > 0.01;
+    if (h > 0 && stale) panel.resize(w, h);
     // The panel came back shorter than it asked for. `fitNode` guessed the
     // widget block from LiteGraph's layout, and the Modern renderer's rows
     // are taller than that, so grow by the measured deficit instead: both
