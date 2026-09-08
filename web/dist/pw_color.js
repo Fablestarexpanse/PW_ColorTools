@@ -1865,10 +1865,9 @@ function attachPanel(node, spec) {
   const measure = () => {
     const w = canvas.offsetWidth;
     const h = canvas.offsetHeight;
-    if (w <= 0 || h <= 0) return;
+    if (w <= 0) return;
     panel.scale = elementScale(canvas);
-    if (w === panel.width && h === panel.height) return;
-    panel.resize(w, h);
+    if (h > 0 && !(w === panel.width && h === panel.height)) panel.resize(w, h);
     const deficit = spec.height(w) - h;
     if (deficit > 0.5) requestAnimationFrame(() => growNode(node, deficit));
   };

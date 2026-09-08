@@ -293,10 +293,12 @@ export function attachPanel(node: NodeLike, spec: PanelSpec): Panel {
   const measure = () => {
     const w = canvas.offsetWidth;
     const h = canvas.offsetHeight;
-    if (w <= 0 || h <= 0) return;
+    // No width means not laid out at all (collapsed node, hidden at zoom).
+    // No *height* with a width is the case that matters: the node gave the
+    // widget nothing, and the deficit below is how it gets its space.
+    if (w <= 0) return;
     panel.scale = elementScale(canvas);
-    if (w === panel.width && h === panel.height) return;
-    panel.resize(w, h);
+    if (h > 0 && !(w === panel.width && h === panel.height)) panel.resize(w, h);
     // The panel came back shorter than it asked for. `fitNode` guessed the
     // widget block from LiteGraph's layout, and the Modern renderer's rows
     // are taller than that, so grow by the measured deficit instead: both
