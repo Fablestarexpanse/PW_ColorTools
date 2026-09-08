@@ -281,7 +281,9 @@ export function attachPanel(node: NodeLike, spec: PanelSpec): Panel {
     if (w <= 0 || h <= 0) return;
     panel.scale = scale;
     panel.resize(w, h);
-    if (h < spec.height(w) - 0.5) fitNode(node, panel);
+    // Growing the node from inside the observer changes layout in the same
+    // pass, which the browser reports as an observer loop. Grow next frame.
+    if (h < spec.height(w) - 0.5) requestAnimationFrame(() => fitNode(node, panel));
   });
   observer.observe(canvas);
 

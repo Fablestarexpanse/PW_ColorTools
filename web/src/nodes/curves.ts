@@ -5,12 +5,13 @@
  * `curves` widget value in sync so the graph serialises, and fetches the node's
  * own input histogram from the server route rather than waiting for a run.
  *
- * All pointer handlers go through `chainHandler`: replacing `onMouseDown`
- * outright breaks subgraph header buttons on frontend 1.4x.
+ * The panel is hosted on a DOM widget (see `widgets/panel.ts`), so it renders
+ * in both the Classic and the Modern node design. Everything below is in
+ * panel-local coordinates.
  */
 
 import { fetchPw } from '../fetch.ts';
-import { type NodeLike, app, chainHandler, getWidget } from '../comfy.ts';
+import { type NodeLike, app, getWidget } from '../comfy.ts';
 import { PW } from '../theme.ts';
 import { CurveEditor, identityState, type ChannelId, type CurveEditorState } from '../canvas/curve_editor.ts';
 import { Preview } from '../canvas/preview.ts';
@@ -21,18 +22,17 @@ import { onRunComplete } from '../widgets/run_events.ts';
 import { addResetMenu, resetNode } from '../widgets/reset.ts';
 import { Segmented } from '../widgets/segmented.ts';
 import { BADGE } from '../theme.ts';
-import { headerChip, hit, sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
-import { collapseInternalPreview, ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
-
-/** The live 2D context, for measuring chips during hit tests. */
-const ctx0 = (): Ctx | null => (globalThis as any).app?.canvas?.ctx ?? null;
+import { headerChip, hit, sectionHeader, type Rect } from '../widgets/draw.ts';
+import { attachPanel, fitNode, hideSerialisationWidget, panelOf, type Panel } from '../widgets/panel.ts';
 
 const M = PW.metrics;
 const HEADER_H = 18;
 const TABS_H = M.controlHeight;
-const ROW_H = M.controlHeight;
 const MIN_EDITOR_H = 160;
 const PREVIEW_H = 140;
+const MIN_WIDTH = 360;
+/** The panel's floor: everything fixed plus the smallest usable editor. */
+const PANEL_MIN_H = HEADER_H + 4 + PREVIEW_H + M.gapControl + TABS_H + M.gapControl + MIN_EDITOR_H + M.padding;
 
 const CHANNEL_TABS = [
   { id: 'luma', label: 'Luma', colour: PW.channel.luma },
@@ -45,17 +45,24 @@ interface CurvesUI {
   editor: CurveEditor;
   tabs: Segmented;
   preview: Preview;
-  layout: (node: NodeLike) => {
-    header: Rect;
-    preview: Rect;
-    tabs: Rect;
-    editor: Rect;
-  };
   /** Re-bake the lattice the preview samples. Cheap enough to run per edit. */
   rebake: (node: NodeLike) => void;
 }
 
 const uis = new WeakMap<object, CurvesUI>();
+
+/** The editor takes whatever height is left below the fixed rows. */
+function layout(w: number, h: number): { header: Rect; preview: Rect; tabs: Rect; editor: Rect } {
+  let y = 0;
+  const header = { x: 0, y, w, h: HEADER_H };
+  y += HEADER_H + 4;
+  const preview = { x: 0, y, w, h: PREVIEW_H };
+  y += PREVIEW_H + M.gapControl;
+  const tabs = { x: 0, y, w, h: TABS_H };
+  y += TABS_H + M.gapControl;
+  const editor = { x: 0, y, w, h: Math.max(MIN_EDITOR_H, h - y - M.padding) };
+  return { header, preview, tabs, editor };
+}
 
 function readState(node: NodeLike): CurveEditorState {
   const w = getWidget(node, 'curves');
@@ -78,7 +85,7 @@ function writeState(node: NodeLike, ui: CurvesUI): void {
   // and in the metadata of every saved PNG, so it stays small and it diffs.
   const s = ui.editor.state;
   w.value = JSON.stringify({ luma: s.luma, r: s.r, g: s.g, b: s.b });
-  node.setDirtyCanvas?.(true, true);
+  panelOf(node)?.invalidate();
 }
 
 /**
@@ -98,7 +105,7 @@ async function loadHistogram(node: NodeLike, ui: CurvesUI): Promise<void> {
       g: Float32Array.from(h.g),
       b: Float32Array.from(h.b),
     };
-    node.setDirtyCanvas?.(true, true);
+    panelOf(node)?.invalidate();
   } catch {
     // Offline or route not registered. The editor works without a histogram.
   }
@@ -107,23 +114,6 @@ async function loadHistogram(node: NodeLike, ui: CurvesUI): Promise<void> {
 function makeUI(node: NodeLike): CurvesUI {
   const editor = new CurveEditor();
   const tabs = new Segmented(CHANNEL_TABS);
-  const layout = (n: NodeLike) => {
-    const x = M.padding;
-    const w = n.size[0] - M.padding * 2;
-    // Start below whatever widgets ComfyUI drew, measured rather than counted:
-    // hidden widgets report a negative height, so counting rows over-estimates
-    // and leaves a gap that grows every time we hide another control.
-    let y = widgetHeight(n) + M.gapSection;
-    const header = { x, y, w, h: HEADER_H };
-    y += HEADER_H + 4;
-    const previewR = { x, y, w, h: PREVIEW_H };
-    y += PREVIEW_H + M.gapControl;
-    const tabsR = { x, y, w, h: TABS_H };
-    y += TABS_H + M.gapControl;
-    const editorH = Math.max(MIN_EDITOR_H, n.size[1] - y - M.gapSection - M.padding);
-    return { header, preview: previewR, tabs: tabsR, editor: { x, y, w, h: editorH } };
-  };
-
   const preview = new Preview();
 
   const rebake = (n: NodeLike) => {
@@ -141,7 +131,7 @@ function makeUI(node: NodeLike): CurvesUI {
     preview.digest = JSON.stringify([op.params, op.strength]);
   };
 
-  const ui: CurvesUI = { editor, tabs, preview, layout, rebake };
+  const ui: CurvesUI = { editor, tabs, preview, rebake };
   editor.state = readState(node);
   editor.onChange = () => {
     writeState(node, ui);
@@ -165,6 +155,7 @@ export function registerCurves(): void {
           if (!ui) return;
           ui.editor.resetAll();
           ui.rebake(node);
+          panelOf(node)?.invalidate();
         },
       }));
 
@@ -177,30 +168,76 @@ export function registerCurves(): void {
         // `curves` is the serialisation channel, not a control — the editor
         // below is how you set it. Every other control is a native ComfyUI
         // widget, so it looks and behaves like the rest of the app.
-        for (const name of ['curves']) {
-          const w = getWidget(this, name);
-          if (!w) continue;
-          w.type = 'hidden';
-          w.computeSize = () => [0, -4];
-        }
+        hideSerialisationWidget(this, 'curves');
 
-        // Widget height from LiteGraph, editor height from us. The editor gets
-        // a generous default because a curve you cannot see is not editable.
-        fitPanel(
-          this,
-          HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding,
-          360,
-        );
+        const reset = () =>
+          resetNode(this, {
+            after: () => {
+              ui.editor.resetAll();
+              ui.rebake(this);
+            },
+          });
+
+        const panel: Panel = attachPanel(this, {
+          minWidth: MIN_WIDTH,
+          height: () => PANEL_MIN_H,
+          draw: (ctx, rr) => {
+            const L = layout(rr.w, rr.h);
+            sectionHeader(ctx, 'Curves', L.header, BADGE.lut);
+            headerChip(ctx, L.header, 'reset', BADGE.lut.label);
+            ui.preview.comparing = isComparing();
+            ui.preview.draw(ctx, L.preview);
+            ui.tabs.draw(ctx, L.tabs);
+            ui.editor.draw(ctx, L.editor);
+          },
+          onPointerDown: (x, y, m) => {
+            const L = layout(panel.width, panel.height);
+            if (hit(headerChip(panel.context, L.header, 'reset', BADGE.lut.label), x, y, 3)) {
+              reset();
+              return true;
+            }
+            const tab = ui.tabs.onPointerDown(x, y, L.tabs);
+            if (tab) {
+              ui.editor.channel = tab as ChannelId;
+              return true;
+            }
+            if (hit(L.preview, x, y)) {
+              ui.preview.onPointerDown(x, y, L.preview, m.shift, m.double);
+              return true;
+            }
+            if (hit(L.editor, x, y)) {
+              ui.editor.onPointerDown(x, y, L.editor, m.shift, m.time);
+              return true;
+            }
+            return false;
+          },
+          onPointerMove: (x, y, m) => {
+            const L = layout(panel.width, panel.height);
+            if (ui.preview.onPointerMove(x, y, L.preview)) return true;
+            return ui.editor.onPointerMove(x, y, L.editor, m.shift);
+          },
+          onPointerUp: () => {
+            // Both must run, so they are called before the OR rather than in it.
+            const editor = ui.editor.onPointerUp();
+            const preview = ui.preview.onPointerUp();
+            return editor || preview;
+          },
+          onWheel: (x, y, delta) => {
+            const L = layout(panel.width, panel.height);
+            return hit(L.preview, x, y) && ui.preview.onWheel(x, y, L.preview, delta);
+          },
+        });
+        const repaint = () => panel.invalidate();
 
         const refresh = () => {
-          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+          void ui.preview.load(this.id, repaint);
           void loadHistogram(this, ui);
         };
         refresh();
 
         // A global key listener, so holding the compare key redraws every
         // PW node at once rather than only the one under the cursor.
-        const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+        const stopCompare = onCompareChange(repaint);
         // PW Curves returns no `ui` data, so `onExecuted` never fires for it.
         // The prompt-level events are what tell us a proxy is now cached.
         const stopRun = onRunComplete(refresh);
@@ -211,95 +248,6 @@ export function registerCurves(): void {
           priorRemoved?.call(this);
         };
 
-        chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
-          if ((this as any).flags?.collapsed) return;
-          collapseInternalPreview(this);
-          if (ensureHeight(this, HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding, 360)) this.setDirtyCanvas?.(true, true);
-          const L = ui.layout(this);
-          sectionHeader(ctx, 'Curves', L.header, BADGE.lut);
-          headerChip(ctx, L.header, 'reset', BADGE.lut.label);
-          ui.preview.comparing = isComparing();
-          ui.preview.draw(ctx, L.preview);
-          ui.tabs.draw(ctx, L.tabs);
-          ui.editor.draw(ctx, L.editor);
-        });
-
-        chainHandler(this, 'onMouseDown', function (this: NodeLike, e: any, pos: [number, number]) {
-          const L = ui.layout(this);
-          const [x, y] = pos;
-          const now = e?.timeStamp ?? 0;
-          const shift = !!e?.shiftKey;
-
-          if (hit(headerChip(ctx0(), L.header, 'reset', BADGE.lut.label), x, y, 3)) {
-            resetNode(this, {
-              after: () => {
-                ui.editor.resetAll();
-                ui.rebake(this);
-              },
-            });
-            return true;
-          }
-
-          const tab = ui.tabs.onPointerDown(x, y, L.tabs);
-          if (tab) {
-            ui.editor.channel = tab as ChannelId;
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          if (hit(L.preview, x, y)) {
-            ui.preview.onPointerDown(x, y, L.preview, shift, e?.detail === 2);
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          if (
-            x >= L.editor.x &&
-            x <= L.editor.x + L.editor.w &&
-            y >= L.editor.y &&
-            y <= L.editor.y + L.editor.h
-          ) {
-            ui.editor.onPointerDown(x, y, L.editor, shift, now);
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
-
-        chainHandler(this, 'onMouseWheel', function (this: NodeLike, e: any, pos: [number, number]) {
-          const L = ui.layout(this);
-          if (!hit(L.preview, pos[0], pos[1])) return false;
-          const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
-          if (ui.preview.onWheel(pos[0], pos[1], L.preview, delta)) {
-            e?.preventDefault?.();
-            e?.stopPropagation?.();
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          return false;
-        });
-
-        chainHandler(this, 'onMouseMove', function (this: NodeLike, e: any, pos: [number, number]) {
-          const L = ui.layout(this);
-          const shift = !!e?.shiftKey;
-          if (ui.preview.onPointerMove(pos[0], pos[1], L.preview)) {
-            this.setDirtyCanvas?.(true, true);
-            return true;
-          }
-          if (ui.editor.onPointerMove(pos[0], pos[1], L.editor, shift)) {
-            this.setDirtyCanvas?.(true, true);
-            return ui.editor.isDragging;
-          }
-          return false;
-        });
-
-        chainHandler(this, 'onMouseUp', function (this: NodeLike) {
-          // Both must run, so they are called before the OR rather than in it.
-          const editor = ui.editor.onPointerUp();
-          const preview = ui.preview.onPointerUp();
-          const handled = editor || preview;
-          if (handled) this.setDirtyCanvas?.(true, true);
-          return handled;
-        });
-
         return r;
       };
 
@@ -309,23 +257,31 @@ export function registerCurves(): void {
       nodeType.prototype.onConfigure = function (this: NodeLike, info: any) {
         const r = onConfigure?.apply(this, arguments as any);
         const ui = uis.get(this);
-        if (ui) {
-          // A workflow saved before the preview existed carries a size that is
-          // now too short, and it is applied after creation — so re-fit here
-          // or the panel is clipped.
-          fitPanel(
-            this,
-            HEADER_H + PREVIEW_H + TABS_H + MIN_EDITOR_H + ROW_H + M.gapSection * 2 + M.gapControl * 3 + M.padding,
-            360,
-          );
+        const panel = panelOf(this);
+        if (ui && panel) {
+          // The stored size is applied after creation; re-fit or a node saved
+          // before the panel existed comes back clipped.
+          fitNode(this, panel);
           ui.editor.state = readState(this);
           ui.rebake(this);
           void loadHistogram(this, ui);
-          void ui.preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
+          void ui.preview.load(this.id, () => panel.invalidate());
+          panel.invalidate();
         }
         return r;
+      };
+
+      // The preview follows the strength and preserve-hue widgets too.
+      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
+      nodeType.prototype.onWidgetChanged = function (this: NodeLike) {
+        const res = onWidgetChanged?.apply(this, arguments as any);
+        const ui = uis.get(this);
+        if (ui) {
+          ui.rebake(this);
+          panelOf(this)?.invalidate();
+        }
+        return res;
       };
     },
   });
 }
-
