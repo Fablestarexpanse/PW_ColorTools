@@ -2063,7 +2063,7 @@ function registerCurves() {
           void ui.preview.load(this.id, repaint2);
           void loadHistogram(this, ui);
         };
-        refresh();
+        setTimeout(refresh, 0);
         const stopCompare = onCompareChange(repaint2);
         const stopRun = onRunComplete(refresh);
         const priorRemoved = this.onRemoved;
@@ -2162,7 +2162,7 @@ function attachSpatialPreview(nodeType, opts) {
       void preview.load(this.id, repaint2);
       void preview.loadOutput(this.id, repaint2);
     };
-    refresh();
+    setTimeout(refresh, 0);
     const stopCompare = onCompareChange(repaint2);
     const stopRun = onRunComplete(refresh);
     const priorRemoved = this.onRemoved;

@@ -94,7 +94,8 @@ export function attachSpatialPreview(nodeType: any, opts: SpatialPreviewOptions)
       void preview.load(this.id, repaint);
       void preview.loadOutput(this.id, repaint);
     };
-    refresh();
+    // Deferred: the node has no id yet inside onNodeCreated (see curves.ts).
+    setTimeout(refresh, 0);
 
     const stopCompare = onCompareChange(repaint);
     const stopRun = onRunComplete(refresh);

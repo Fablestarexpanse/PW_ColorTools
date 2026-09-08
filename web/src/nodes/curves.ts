@@ -233,7 +233,11 @@ export function registerCurves(): void {
           void ui.preview.load(this.id, repaint);
           void loadHistogram(this, ui);
         };
-        refresh();
+        // Not yet: onNodeCreated fires from the constructor, before the node
+        // has its id, so a fetch now asks for the wrong proxy — and its
+        // in-flight flag then blocks the right one from onConfigure. By the
+        // next tick a loaded node is configured and a new one is in the graph.
+        setTimeout(refresh, 0);
 
         // A global key listener, so holding the compare key redraws every
         // PW node at once rather than only the one under the cursor.
