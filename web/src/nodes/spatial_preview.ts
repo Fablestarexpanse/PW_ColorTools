@@ -14,28 +14,31 @@
  *
  * The section is badged `render only` so the difference is stated rather than
  * discovered.
+ *
+ * Hosted on a DOM widget (`widgets/panel.ts`), so it renders in both node
+ * designs. All coordinates below are panel-local.
  */
 
-import { chainHandler, type NodeLike } from '../comfy.ts';
+import type { NodeLike } from '../comfy.ts';
 import { Preview } from '../canvas/preview.ts';
 import { BADGE, PW } from '../theme.ts';
 import { isComparing, onCompareChange } from '../widgets/compare.ts';
 import { headerChip, hit, sectionHeader, type Ctx, type Rect } from '../widgets/draw.ts';
+import { attachPanel, type Panel } from '../widgets/panel.ts';
 import { resetNode } from '../widgets/reset.ts';
-import { collapseInternalPreview, ensureHeight, fitPanel, widgetHeight } from '../widgets/layout.ts';
 import { onRunComplete } from '../widgets/run_events.ts';
 
 const M = PW.metrics;
 const HEADER_H = 18;
 
 export interface SpatialPreviewOptions {
-  /** Panel height in pixels. */
+  /** Preview height in pixels. */
   height: number;
   /** Minimum node width. */
   minWidth: number;
-  /** Extra height this node needs below the preview, if any. */
+  /** Extra height this node draws above the preview, if any. */
   extra?: (node: NodeLike) => number;
-  /** Drawn between the widgets and the preview. */
+  /** Drawn above the preview, from `top` (always 0) across `width`. */
   drawExtra?: (ctx: Ctx, node: NodeLike, top: number, width: number) => void;
   label?: string;
 }
@@ -52,24 +55,48 @@ export function attachSpatialPreview(nodeType: any, opts: SpatialPreviewOptions)
     const r = onCreated?.apply(this, arguments as any);
     const preview = new Preview();
 
-    const extraTop = (n: NodeLike) => widgetHeight(n) + M.gapSection;
-    const previewRect = (n: NodeLike): Rect => {
-      const x = M.padding;
-      const w = n.size[0] - M.padding * 2;
-      const y = extraTop(n) + (opts.extra?.(n) ?? 0) + HEADER_H + 6;
-      return { x, y, w, h: opts.height };
-    };
+    const extraH = () => opts.extra?.(this) ?? 0;
+    const headerRect = (w: number): Rect => ({ x: 0, y: extraH(), w, h: HEADER_H });
+    const previewRect = (w: number): Rect => ({ x: 0, y: extraH() + HEADER_H + 6, w, h: opts.height });
 
-    const panelHeight = () => (opts.extra?.(this) ?? 0) + HEADER_H + 6 + opts.height + M.gapSection + M.padding;
-    fitPanel(this, panelHeight(), opts.minWidth);
+    const panel: Panel = attachPanel(this, {
+      minWidth: opts.minWidth,
+      height: () => extraH() + HEADER_H + 6 + opts.height + M.padding,
+      draw: (ctx, rr) => {
+        opts.drawExtra?.(ctx, this, 0, rr.w);
+        const hr = headerRect(rr.w);
+        sectionHeader(ctx, opts.label ?? 'Result', hr, BADGE.render);
+        headerChip(ctx, hr, 'reset', BADGE.render.label);
+        preview.comparing = isComparing();
+        preview.draw(ctx, previewRect(rr.w));
+      },
+      onPointerDown: (x, y, m) => {
+        const hr = headerRect(panel.width);
+        if (hit(headerChip(panel.context, hr, 'reset', BADGE.render.label), x, y, 3)) {
+          resetNode(this);
+          return true;
+        }
+        const pr = previewRect(panel.width);
+        if (!hit(pr, x, y)) return false;
+        preview.onPointerDown(x, y, pr, m.shift, m.double);
+        return true;
+      },
+      onPointerMove: (x, y) => preview.onPointerMove(x, y, previewRect(panel.width)),
+      onPointerUp: () => preview.onPointerUp(),
+      onWheel: (x, y, delta) => {
+        const pr = previewRect(panel.width);
+        return hit(pr, x, y) && preview.onWheel(x, y, pr, delta);
+      },
+    });
+    const repaint = () => panel.invalidate();
 
     const refresh = () => {
-      void preview.load(this.id, () => this.setDirtyCanvas?.(true, true));
-      void preview.loadOutput(this.id, () => this.setDirtyCanvas?.(true, true));
+      void preview.load(this.id, repaint);
+      void preview.loadOutput(this.id, repaint);
     };
     refresh();
 
-    const stopCompare = onCompareChange(() => this.setDirtyCanvas?.(true, true));
+    const stopCompare = onCompareChange(repaint);
     const stopRun = onRunComplete(refresh);
     const priorRemoved = this.onRemoved;
     this.onRemoved = function (this: NodeLike) {
@@ -77,60 +104,6 @@ export function attachSpatialPreview(nodeType: any, opts: SpatialPreviewOptions)
       stopRun();
       priorRemoved?.call(this);
     };
-
-    chainHandler(this, 'onDrawForeground', function (this: NodeLike, ctx: Ctx) {
-      if ((this as any).flags?.collapsed) return;
-      // A workflow saved before this panel existed restores a size that is too
-      // short, and it is applied after onConfigure — so enforce it here.
-      collapseInternalPreview(this);
-      if (ensureHeight(this, panelHeight(), opts.minWidth)) this.setDirtyCanvas?.(true, true);
-      const x = M.padding;
-      const w = this.size[0] - M.padding * 2;
-      opts.drawExtra?.(ctx, this, extraTop(this), w);
-      const pr = previewRect(this);
-      const hr = { x, y: pr.y - HEADER_H - 6, w, h: HEADER_H };
-      sectionHeader(ctx, opts.label ?? 'Result', hr, BADGE.render);
-      headerChip(ctx, hr, 'reset', BADGE.render.label);
-      preview.comparing = isComparing();
-      preview.draw(ctx, pr);
-    });
-
-    chainHandler(this, 'onMouseDown', function (this: NodeLike, e: any, pos: [number, number]) {
-      const pr = previewRect(this);
-      const hr = { x: M.padding, y: pr.y - HEADER_H - 6, w: this.size[0] - M.padding * 2, h: HEADER_H };
-      const ctx2 = (globalThis as any).app?.canvas?.ctx ?? null;
-      if (hit(headerChip(ctx2, hr, 'reset', BADGE.render.label), pos[0], pos[1], 3)) {
-        resetNode(this);
-        return true;
-      }
-      if (!hit(pr, pos[0], pos[1])) return false;
-      preview.onPointerDown(pos[0], pos[1], pr, !!e?.shiftKey, e?.detail === 2);
-      this.setDirtyCanvas?.(true, true);
-      return true;
-    });
-
-    chainHandler(this, 'onMouseMove', function (this: NodeLike, _e: any, pos: [number, number]) {
-      if (!preview.onPointerMove(pos[0], pos[1], previewRect(this))) return false;
-      this.setDirtyCanvas?.(true, true);
-      return true;
-    });
-
-    chainHandler(this, 'onMouseUp', function (this: NodeLike) {
-      if (!preview.onPointerUp()) return false;
-      this.setDirtyCanvas?.(true, true);
-      return true;
-    });
-
-    chainHandler(this, 'onMouseWheel', function (this: NodeLike, e: any, pos: [number, number]) {
-      const pr = previewRect(this);
-      if (!hit(pr, pos[0], pos[1])) return false;
-      const delta = e?.deltaY ?? -(e?.wheelDelta ?? 0);
-      if (!preview.onWheel(pos[0], pos[1], pr, delta)) return false;
-      e?.preventDefault?.();
-      e?.stopPropagation?.();
-      this.setDirtyCanvas?.(true, true);
-      return true;
-    });
 
     return r;
   };

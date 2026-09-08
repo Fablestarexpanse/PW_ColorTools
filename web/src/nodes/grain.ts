@@ -15,6 +15,7 @@ import { tonalWeight } from '../core/tonal.ts';
 import { app, getWidget, type NodeLike } from '../comfy.ts';
 import { BADGE, PW } from '../theme.ts';
 import { fillPanel, hairline, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
+import { panelOf } from '../widgets/panel.ts';
 import { attachSpatialPreview } from './spatial_preview.ts';
 
 const M = PW.metrics;
@@ -92,9 +93,8 @@ export function registerGrain(): void {
         label: 'Result',
         extra: () => PANEL_H + 18 + M.gapSection,
         drawExtra: (ctx, node, top, w) => {
-          const x = M.padding;
-          sectionHeader(ctx, 'Tonal response', { x, y: top, w, h: 18 }, BADGE.render);
-          drawResponse(ctx, { x, y: top + 20, w, h: PANEL_H - 20 }, node);
+          sectionHeader(ctx, 'Tonal response', { x: 0, y: top, w, h: 18 }, BADGE.render);
+          drawResponse(ctx, { x: 0, y: top + 20, w, h: PANEL_H - 20 }, node);
         },
       });
 
@@ -102,7 +102,7 @@ export function registerGrain(): void {
       const onWidgetChanged = nodeType.prototype.onWidgetChanged;
       nodeType.prototype.onWidgetChanged = function (this: NodeLike) {
         const res = onWidgetChanged?.apply(this, arguments as any);
-        this.setDirtyCanvas?.(true, true);
+        panelOf(this)?.invalidate();
         return res;
       };
     },
