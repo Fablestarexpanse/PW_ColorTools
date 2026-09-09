@@ -16,7 +16,7 @@
 
 import { fetchPw, postPw } from '../fetch.ts';
 import { api, app, type NodeLike } from '../comfy.ts';
-import { BADGE, PW } from '../theme.ts';
+import { PW } from '../theme.ts';
 import { STARS, keptCount, nextRating, starHit, type Cell } from '../core/stars.ts';
 import { fillPanel, headerChip, hit, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
 import { attachPanel, fitNode, panelOf, type Panel } from '../widgets/panel.ts';
@@ -208,9 +208,12 @@ export function registerReview(): void {
           height: (w) => panelHeight(w, ui),
           draw: (ctx, rr) => {
             const L = layout(rr.w);
+            // No badge. The pack's badges say whether a panel's preview is
+            // exact or approximate, and this panel is not a preview of
+            // anything — it is the batch itself, waiting.
             const label = ui.holding ? `Review — ${ui.count} held, ${keptCount(ui.ratings)} kept` : 'Review';
-            sectionHeader(ctx, label, L.header, BADGE.render);
-            if (ui.holding) headerChip(ctx, L.header, 'release', BADGE.render.label);
+            sectionHeader(ctx, label, L.header);
+            if (ui.holding) headerChip(ctx, L.header, 'release');
 
             fillPanel(ctx, L.view, PW.color.well, M.radiusPanel, PW.color.border);
             const focus = ui.views.get(ui.focus);
@@ -259,7 +262,7 @@ export function registerReview(): void {
           },
           onPointerDown: (x, y) => {
             const L = layout(panel.width);
-            if (ui.holding && hit(headerChip(panel.context, L.header, 'release', BADGE.render.label), x, y, 3)) {
+            if (ui.holding && hit(headerChip(panel.context, L.header, 'release'), x, y, 3)) {
               void releaseHold(this, ui);
               return true;
             }

@@ -3229,8 +3229,8 @@ function registerReview() {
           draw: (ctx, rr) => {
             const L = layout4(rr.w);
             const label = ui.holding ? `Review \u2014 ${ui.count} held, ${keptCount(ui.ratings)} kept` : "Review";
-            sectionHeader(ctx, label, L.header, BADGE.render);
-            if (ui.holding) headerChip(ctx, L.header, "release", BADGE.render.label);
+            sectionHeader(ctx, label, L.header);
+            if (ui.holding) headerChip(ctx, L.header, "release");
             fillPanel(ctx, L.view, PW.color.well, M6.radiusPanel, PW.color.border);
             const focus = ui.views.get(ui.focus);
             if (focus) {
@@ -3275,7 +3275,7 @@ function registerReview() {
           },
           onPointerDown: (x, y) => {
             const L = layout4(panel.width);
-            if (ui.holding && hit(headerChip(panel.context, L.header, "release", BADGE.render.label), x, y, 3)) {
+            if (ui.holding && hit(headerChip(panel.context, L.header, "release"), x, y, 3)) {
               void releaseHold(this, ui);
               return true;
             }
