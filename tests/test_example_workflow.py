@@ -69,15 +69,28 @@ def by_type(doc) -> dict[str, dict]:
     return {n["type"]: n for n in nodes}
 
 
+#: Nodes deliberately kept out of the shipped workflow, and why.
+#:
+#: PW Review stops the run and waits for someone to rate what came out. In a
+#: template, which is the first thing a new user opens and presses Run on,
+#: that is a graph that appears to hang. The README documents it instead.
+NOT_IN_TEMPLATE = {"PW_Review"}
+
+
 def test_every_node_in_the_pack_is_present(by_type):
     """The pitch is 'the whole pack, wired'. Adding a node without adding it
-    here leaves people to discover it on their own."""
+    here leaves people to discover it on their own — unless it is one of the
+    few that would spoil a first run, which are named above with the reason."""
     import re
 
     shipped = set()
     for p in (ROOT / "pw_color" / "nodes").glob("*.py"):
         shipped |= set(re.findall(r'node_id="(PW_\w+)"', p.read_text(encoding="utf-8")))
-    assert shipped == set(by_type), f"workflow is missing {sorted(shipped - set(by_type))}"
+    expected = shipped - NOT_IN_TEMPLATE
+    assert expected == set(by_type), f"workflow is missing {sorted(expected - set(by_type))}"
+    assert not (NOT_IN_TEMPLATE & set(by_type)), (
+        f"{sorted(NOT_IN_TEMPLATE & set(by_type))} is in the template but listed as deliberately absent"
+    )
 
 
 def test_the_image_chain_runs_in_the_documented_order(doc, by_type):
