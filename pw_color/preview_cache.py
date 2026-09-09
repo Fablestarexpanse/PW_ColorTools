@@ -29,6 +29,7 @@ import torch
 from .colour import luma_bt709, srgb_to_linear
 
 __all__ = [
+    "encode_jpeg",
     "store_input",
     "store_output",
     "store_input_for_node",
@@ -139,15 +140,21 @@ def _histogram(image: torch.Tensor, bins: int = 256) -> dict[str, list[float]]:
     return out
 
 
-def _encode_proxy(image: torch.Tensor) -> bytes:
+def encode_jpeg(image: torch.Tensor, long_edge: int) -> bytes:
+    """One image as a JPEG, no longer than ``long_edge`` on its long side.
+
+    Takes a single image in HWC rather than a batch: the caller that holds
+    several wants them one at a time, and slicing at the call site reads better
+    than a batch index buried in here.
+    """
     # Pillow and numpy are ComfyUI runtime dependencies rather than ours, and
     # only the rendering paths need them. Deferred so importing the pack stays
     # cheap and a colour-only use never touches them.
     from PIL import Image
 
-    img = image[0, ..., :3].float().clamp(0, 1)
+    img = image[..., :3].float().clamp(0, 1)
     h, w = img.shape[0], img.shape[1]
-    scale = min(1.0, PROXY_LONG_EDGE / max(h, w))
+    scale = min(1.0, long_edge / max(h, w))
     arr = (img * 255.0 + 0.5).clamp(0, 255).to(torch.uint8).cpu().numpy()
     pil = Image.fromarray(arr, "RGB")
     if scale < 1.0:
@@ -155,6 +162,11 @@ def _encode_proxy(image: torch.Tensor) -> bytes:
     buf = _io.BytesIO()
     pil.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
+
+
+def _encode_proxy(image: torch.Tensor) -> bytes:
+    """The first image of a batch, at the cache's proxy size."""
+    return encode_jpeg(image[0], PROXY_LONG_EDGE)
 
 
 def store_input(node_id: str, image: torch.Tensor | None) -> None:
