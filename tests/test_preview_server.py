@@ -285,6 +285,10 @@ def test_every_route_the_frontend_calls_is_registered():
     be a third copy of the vocabulary, and this test would then be checking the
     server against my memory of the browser instead of against the browser. Same
     approach as tests/test_theme.py, which parses theme.ts.
+
+    Both route modules count. The pack serves its routes from two files — the
+    read-only previews and the review, which mutates — and a check that knew
+    about only one would call the other's routes unserved.
     """
     import re
     from pathlib import Path
@@ -297,7 +301,10 @@ def test_every_route_the_frontend_calls_is_registered():
     assert called, "found no pw_color routes in the frontend sources"
 
     # The server declares them with a {node_id} segment the browser fills in.
+    from pw_color import review_server as rs
+
     served = {p.split("/{")[0] for p in _routes()}
+    served |= {path.split("/{")[0] for path, _method, _handler in rs._routing_table(_FakeWeb)}
     assert called == served, (
         f"the browser calls {sorted(called - served)} that the server does not serve, "
         f"and the server serves {sorted(served - called)} that nothing calls"

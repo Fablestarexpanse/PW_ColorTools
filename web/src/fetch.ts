@@ -18,3 +18,15 @@ export async function fetchPw(path: string): Promise<Response> {
   const { api } = await import('/scripts/api.js');
   return api.fetchApi(path, { cache: 'no-store' });
 }
+
+/** POST JSON to one of the pack's routes, through the host's own fetch. */
+export async function postPw(path: string, body: unknown): Promise<Response> {
+  // @ts-ignore - provided by ComfyUI at runtime, no types published
+  const { api } = await import('/scripts/api.js');
+  return api.fetchApi(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  });
+}

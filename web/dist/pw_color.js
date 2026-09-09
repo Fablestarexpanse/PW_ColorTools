@@ -127,6 +127,15 @@ async function fetchPw(path) {
   const { api: api2 } = await import("/scripts/api.js");
   return api2.fetchApi(path, { cache: "no-store" });
 }
+async function postPw(path, body) {
+  const { api: api2 } = await import("/scripts/api.js");
+  return api2.fetchApi(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store"
+  });
+}
 
 // src/core/curve.ts
 var IDENTITY_POINTS = [
@@ -1567,7 +1576,10 @@ var PASS_THROUGH = {
   // Vignette and aberration already default to zero; only halation is on.
   PW_Optics: { halation: 0 },
   PW_Grain: { amount: 0, dither: 0 },
-  PW_MatchSource: { strength: 0 }
+  PW_MatchSource: { strength: 0 },
+  // A gate's pass-through state is not gating, so reset switches auto_pass on
+  // rather than leaving a node that stops every run it is asked to reset.
+  PW_Review: { auto_pass: true }
 };
 function defaultFor(node, name) {
   const defs = node.constructor?.nodeData?.input ?? {};
@@ -1692,9 +1704,9 @@ function widgetHeight(node) {
   }
   return 40 + widgets.length * (PW.metrics.controlHeight + 4);
 }
-function fitPanel(node, panelHeight2, minWidth) {
+function fitPanel(node, panelHeight3, minWidth) {
   node.size[0] = Math.max(node.size[0], minWidth);
-  node.size[1] = Math.max(node.size[1], widgetHeight(node) + panelHeight2);
+  node.size[1] = Math.max(node.size[1], widgetHeight(node) + panelHeight3);
 }
 
 // src/widgets/panel.ts
@@ -3054,6 +3066,242 @@ function drawSavedHint(ctx, strip, node) {
   text(ctx, `saved ${name}`, strip.x, strip.y + strip.h + 12, { colour: PW.color.textMute });
 }
 
+// src/core/stars.ts
+var STARS = 5;
+function starHit(x, y, cells, starSize) {
+  for (let index = 0; index < cells.length; index++) {
+    const c = cells[index];
+    const top = c.y + c.h - starSize;
+    if (x < c.x || x > c.x + c.w || y < top || y > c.y + c.h) continue;
+    const star2 = Math.floor((x - c.x) / starSize) + 1;
+    if (star2 < 1 || star2 > STARS) return null;
+    return { index, star: star2 };
+  }
+  return null;
+}
+function nextRating(current, clicked) {
+  return current === clicked ? 0 : clicked;
+}
+function keptCount(ratings) {
+  return ratings.filter((r) => r > 0).length;
+}
+
+// src/nodes/review.ts
+var M6 = PW.metrics;
+var HEADER_H5 = 18;
+var VIEW_H = 220;
+var THUMB_H2 = 76;
+var STAR_H = 16;
+var CELL_H2 = THUMB_H2 + STAR_H;
+var CELL_W = 96;
+var CELL_GAP = 8;
+var MIN_WIDTH4 = 420;
+var uis3 = /* @__PURE__ */ new WeakMap();
+function blank() {
+  return { holding: false, count: 0, ratings: [], focus: 0, views: /* @__PURE__ */ new Map(), thumbs: /* @__PURE__ */ new Map(), note: "" };
+}
+function columns(width) {
+  return Math.max(1, Math.floor((width + CELL_GAP) / (CELL_W + CELL_GAP)));
+}
+function rowCount(width, count) {
+  return Math.max(1, Math.ceil(Math.max(1, count) / columns(width)));
+}
+function gridCells(strip, count) {
+  const cols = columns(strip.w);
+  return Array.from({ length: count }, (_, i) => ({
+    x: strip.x + i % cols * (CELL_W + CELL_GAP),
+    y: strip.y + Math.floor(i / cols) * (CELL_H2 + CELL_GAP),
+    w: CELL_W,
+    h: CELL_H2
+  }));
+}
+function layout4(w) {
+  let y = 0;
+  const header = { x: 0, y, w, h: HEADER_H5 };
+  y += HEADER_H5 + 6;
+  const view = { x: 0, y, w, h: VIEW_H };
+  y += VIEW_H + M6.gapSection;
+  return { header, view, strip: { x: 0, y, w, h: 0 } };
+}
+function panelHeight2(w, ui) {
+  const rows = rowCount(w, ui.count);
+  return HEADER_H5 + 6 + VIEW_H + M6.gapSection + rows * CELL_H2 + (rows - 1) * CELL_GAP + M6.padding;
+}
+function star(ctx, cx, cy, radius, filled) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? radius : radius * 0.45;
+    const a = -Math.PI / 2 + i * Math.PI / 5;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  if (filled) {
+    ctx.fillStyle = PW.color.accent;
+    ctx.fill();
+  } else {
+    ctx.strokeStyle = PW.color.textMute;
+    ctx.lineWidth = PW.metrics.border;
+    ctx.stroke();
+  }
+}
+async function loadFrame(node, ui, kind, index) {
+  const into = kind === "image" ? ui.views : ui.thumbs;
+  if (into.has(index)) return;
+  try {
+    const res = await fetchPw(`/pw_color/review/${node.id}/${kind}/${index}`);
+    if (!res.ok) return;
+    const img = new Image();
+    const url = URL.createObjectURL(await res.blob());
+    await new Promise((done) => {
+      img.onload = () => done();
+      img.onerror = () => done();
+      img.src = url;
+    });
+    URL.revokeObjectURL(url);
+    into.set(index, img);
+    panelOf(node)?.invalidate();
+  } catch {
+  }
+}
+async function syncState(node, ui) {
+  try {
+    const res = await fetchPw(`/pw_color/review/${node.id}`);
+    if (!res.ok) return;
+    const state = await res.json();
+    const arrived = !ui.holding && !!state.holding;
+    ui.holding = !!state.holding;
+    ui.count = state.count ?? 0;
+    ui.ratings = Array.isArray(state.ratings) ? state.ratings.slice() : [];
+    if (arrived) {
+      ui.views.clear();
+      ui.thumbs.clear();
+      ui.focus = 0;
+      ui.note = "";
+    }
+    const panel = panelOf(node);
+    if (panel) fitNode(node, panel);
+    if (ui.holding) {
+      void loadFrame(node, ui, "image", ui.focus);
+      for (let i = 0; i < ui.count; i++) void loadFrame(node, ui, "thumb", i);
+    }
+    panel?.invalidate();
+  } catch {
+  }
+}
+async function releaseHold(node, ui) {
+  if (!ui.holding) return;
+  const kept = keptCount(ui.ratings);
+  try {
+    const res = await postPw(`/pw_color/review/${node.id}/release`, { ratings: ui.ratings });
+    ui.note = res.ok ? kept ? `sent ${kept} of ${ui.count}` : "nothing kept" : "that batch is no longer held";
+  } catch {
+    ui.note = "could not reach the server";
+  }
+  ui.holding = false;
+  ui.views.clear();
+  ui.thumbs.clear();
+  panelOf(node)?.invalidate();
+}
+function registerReview() {
+  app.registerExtension({
+    name: "pw.color.review",
+    async setup() {
+      api.addEventListener("pw_color.review", (e) => {
+        const node = app.graph?.getNodeById?.(e?.detail?.node_id);
+        const ui = node ? uis3.get(node) : void 0;
+        if (node && ui) void syncState(node, ui);
+      });
+    },
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+      if (nodeData?.name !== "PW_Review") return;
+      addResetMenu(nodeType);
+      const onCreated = nodeType.prototype.onNodeCreated;
+      nodeType.prototype.onNodeCreated = function() {
+        const created = onCreated?.apply(this, arguments);
+        const ui = blank();
+        uis3.set(this, ui);
+        const panel = attachPanel(this, {
+          minWidth: MIN_WIDTH4,
+          height: (w) => panelHeight2(w, ui),
+          draw: (ctx, rr) => {
+            const L = layout4(rr.w);
+            const label = ui.holding ? `Review \u2014 ${ui.count} held, ${keptCount(ui.ratings)} kept` : "Review";
+            sectionHeader(ctx, label, L.header, BADGE.render);
+            if (ui.holding) headerChip(ctx, L.header, "release", BADGE.render.label);
+            fillPanel(ctx, L.view, PW.color.well, M6.radiusPanel, PW.color.border);
+            const focus = ui.views.get(ui.focus);
+            if (focus) {
+              ctx.save();
+              fillPanel(ctx, L.view, PW.color.well, M6.radiusPanel);
+              ctx.clip();
+              const s = Math.min(L.view.w / focus.width, L.view.h / focus.height);
+              const w = focus.width * s;
+              const h = focus.height * s;
+              ctx.drawImage(focus, L.view.x + (L.view.w - w) / 2, L.view.y + (L.view.h - h) / 2, w, h);
+              ctx.restore();
+            } else {
+              const idle = ui.holding ? "loading" : ui.note || "Nothing held. Run the graph.";
+              text(ctx, idle, L.view.x + L.view.w / 2, L.view.y + L.view.h / 2, {
+                colour: PW.color.textMute,
+                align: "center"
+              });
+            }
+            gridCells(L.strip, ui.count).forEach((c, i) => {
+              const cell = { x: c.x, y: c.y, w: c.w, h: THUMB_H2 };
+              fillPanel(ctx, cell, PW.color.well, M6.radiusControl);
+              const thumb = ui.thumbs.get(i);
+              if (thumb) {
+                ctx.save();
+                fillPanel(ctx, cell, PW.color.well, M6.radiusControl);
+                ctx.clip();
+                const s = Math.max(cell.w / thumb.width, THUMB_H2 / thumb.height);
+                const w = thumb.width * s;
+                const h = thumb.height * s;
+                ctx.drawImage(thumb, c.x + (cell.w - w) / 2, c.y + (THUMB_H2 - h) / 2, w, h);
+                ctx.restore();
+              }
+              const focused = i === ui.focus;
+              ctx.strokeStyle = focused ? PW.color.accent : PW.color.borderSoft;
+              ctx.lineWidth = focused ? 2 : 1;
+              ctx.strokeRect(c.x + 0.5, c.y + 0.5, cell.w - 1, THUMB_H2 - 1);
+              const rating = ui.ratings[i] ?? 0;
+              for (let s = 1; s <= STARS; s++) {
+                star(ctx, c.x + (s - 0.5) * STAR_H, c.y + THUMB_H2 + STAR_H / 2, STAR_H * 0.4, s <= rating);
+              }
+            });
+          },
+          onPointerDown: (x, y) => {
+            const L = layout4(panel.width);
+            if (ui.holding && hit(headerChip(panel.context, L.header, "release", BADGE.render.label), x, y, 3)) {
+              void releaseHold(this, ui);
+              return true;
+            }
+            if (!ui.holding) return false;
+            const cells = gridCells(L.strip, ui.count);
+            const onStar = starHit(x, y, cells, STAR_H);
+            if (onStar) {
+              ui.ratings[onStar.index] = nextRating(ui.ratings[onStar.index] ?? 0, onStar.star);
+              return true;
+            }
+            const picked = cells.findIndex((c) => hit({ x: c.x, y: c.y, w: c.w, h: THUMB_H2 }, x, y));
+            if (picked >= 0) {
+              ui.focus = picked;
+              void loadFrame(this, ui, "image", picked);
+              return true;
+            }
+            return false;
+          }
+        });
+        setTimeout(() => void syncState(this, ui), 0);
+        return created;
+      };
+    }
+  });
+}
+
 // src/index.ts
 function registerPortColours() {
   const canvas = app.canvas;
@@ -3075,7 +3323,8 @@ var PW_NODES = [
   "PW_MatchSource",
   "PW_Palette",
   "PW_Scopes",
-  "PW_LookIO"
+  "PW_LookIO",
+  "PW_Review"
 ];
 app.registerExtension({
   name: "pw.color",
@@ -3093,3 +3342,4 @@ registerGrain();
 registerLook();
 registerOptics();
 registerPalette();
+registerReview();

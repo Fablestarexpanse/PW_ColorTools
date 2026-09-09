@@ -9,6 +9,7 @@ import { registerGrain } from './nodes/grain.ts';
 import { registerLook } from './nodes/look.ts';
 import { registerOptics } from './nodes/optics.ts';
 import { registerPalette } from './nodes/palette.ts';
+import { registerReview } from './nodes/review.ts';
 import { addResetMenu } from './widgets/reset.ts';
 
 /**
@@ -44,6 +45,7 @@ const PW_NODES = [
   'PW_Palette',
   'PW_Scopes',
   'PW_LookIO',
+  'PW_Review',
 ];
 
 app.registerExtension({
@@ -66,3 +68,4 @@ registerGrain();
 registerLook();
 registerOptics();
 registerPalette();
+registerReview();

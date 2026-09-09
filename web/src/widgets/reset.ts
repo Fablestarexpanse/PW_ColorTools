@@ -28,11 +28,14 @@ import type { NodeLike } from '../comfy.ts';
  * Keyed by node type; anything not listed resets to its schema default, which
  * for every other control is already neutral.
  */
-const PASS_THROUGH: Record<string, Record<string, number>> = {
+const PASS_THROUGH: Record<string, Record<string, number | boolean>> = {
   // Vignette and aberration already default to zero; only halation is on.
   PW_Optics: { halation: 0 },
   PW_Grain: { amount: 0, dither: 0 },
   PW_MatchSource: { strength: 0 },
+  // A gate's pass-through state is not gating, so reset switches auto_pass on
+  // rather than leaving a node that stops every run it is asked to reset.
+  PW_Review: { auto_pass: true },
 };
 
 /** The default for a widget, straight from the node definition. */

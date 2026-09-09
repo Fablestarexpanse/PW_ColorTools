@@ -22,20 +22,29 @@ import torch
 
 comfy_io = pytest.importorskip("comfy_api.latest", reason="needs ComfyUI on the path").io  # noqa: F401
 
-from pw_color.nodes import curves, grain, look, match_source, optics, palette, scopes  # noqa: E402
+from pw_color.nodes import curves, grain, look, match_source, optics, palette, review, scopes  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 RESET_TS = ROOT / "web" / "src" / "widgets" / "reset.ts"
 
 
-def _pass_through_table() -> dict[str, dict[str, float]]:
-    """Parse the PASS_THROUGH map out of reset.ts."""
+def _pass_through_table() -> dict[str, dict[str, float | bool]]:
+    """Parse the PASS_THROUGH map out of reset.ts.
+
+    Values are numbers for the grade controls and booleans for the gate, so
+    both are read. A parser that saw only numbers would skip a boolean entry
+    in silence, which is exactly the sort of untested claim this file exists
+    to catch.
+    """
     src = RESET_TS.read_text(encoding="utf-8")
     block = re.search(r"const PASS_THROUGH[^=]*=\s*\{(.*?)\n\};", src, re.S)
     assert block, "could not find PASS_THROUGH in reset.ts"
-    out: dict[str, dict[str, float]] = {}
+    out: dict[str, dict[str, float | bool]] = {}
     for node, body in re.findall(r"(\w+):\s*\{([^}]*)\}", block.group(1)):
-        out[node] = {k: float(v) for k, v in re.findall(r"(\w+):\s*(-?[\d.]+)", body)}
+        entries: dict[str, float | bool] = {}
+        for key, raw in re.findall(r"(\w+):\s*(-?[\d.]+|true|false)", body):
+            entries[key] = raw == "true" if raw in ("true", "false") else float(raw)
+        out[node] = entries
     return out
 
 
@@ -62,6 +71,7 @@ NODES = {
     "PW_MatchSource": match_source.PW_MatchSource,
     "PW_Scopes": scopes.PW_Scopes,
     "PW_Palette": palette.PW_Palette,
+    "PW_Review": review.PW_Review,
 }
 
 
@@ -124,6 +134,24 @@ def test_table_only_lists_controls_whose_default_is_not_neutral():
             assert defaults.get(control) != neutral, (
                 f"{name}.{control} defaults to {neutral} already — drop it from PASS_THROUGH"
             )
+
+
+def test_reset_stops_the_review_gate_gating():
+    """A gate's pass-through state is not gating at all.
+
+    It earns its own test rather than joining the parametrised ones because
+    its execute is a coroutine: it is the one node in the pack that waits, and
+    reset is what makes it stop.
+    """
+    import asyncio
+
+    node = NODES["PW_Review"]
+    node.hidden = _Hidden()
+    img = _image()
+    kwargs = _reset_kwargs("PW_Review", node)
+    assert kwargs["auto_pass"] is True, "reset must switch the gate off, not merely restore its default"
+    out = asyncio.run(node.execute(image=img, **kwargs)).result[0]
+    assert torch.equal(out, img)
 
 
 def test_defaults_alone_would_not_be_a_pass_through():
