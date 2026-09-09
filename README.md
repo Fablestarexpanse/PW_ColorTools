@@ -256,6 +256,30 @@ downscaled proxy is not a scope of the image — resampling fills in exactly the
 gaps that make posterisation and clipping visible. It also means the scope is an
 IMAGE you can wire into a Save Image node and keep next to the frame it measured.
 
+### PW Review
+
+<img src="docs/images/pw_review.png" alt="PW Review" width="420">
+
+A place to stop and look. Wire it after your sampler and the run halts at the
+node with the whole batch in front of you: click a frame to see it large, give
+each one one to five stars, then release. The rated images carry on down the
+graph, best first, and the ones you left unrated are dropped — that is how you
+reject a frame, and why there is no separate reject button to forget.
+
+Clicking a star you have already given clears it back to unrated. Rating
+nothing and releasing stops the run there, quietly, because rejecting every
+frame is a decision rather than an error. **auto_pass** sends every image
+straight through without stopping, for unattended runs, and it is what the
+node's reset turns on.
+
+Two things to know. The batch stays in memory while it waits, and the run
+keeps its place in the queue, so anything queued behind it waits too. That is
+the trade for reviewing the images that were actually generated, rather than
+re-running to act on what you saw.
+
+It is deliberately **not** in the drop-in workflow: a template that stops on
+its first run and waits to be rated is the wrong first impression.
+
 ### PW Look I/O
 
 <img src="docs/images/pw_lookio.png" alt="PW Look I/O" width="340">

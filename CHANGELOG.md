@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0
+
+### Added
+
+- **PW Review.** A place to stop and look, put wherever you want to judge what
+  came out. The run halts at the node with the whole batch in front of you:
+  click a frame to see it large, rate each one to five stars, then release.
+  The rated images carry on best first and the unrated are dropped, which is
+  how you reject one. Rating nothing stops the run there quietly.
+  `auto_pass` sends everything through untouched for unattended runs, and is
+  what the node's reset turns on. The batch stays in memory while it waits and
+  the run keeps its place in the queue. It is not in the drop-in workflow, on
+  purpose: a template that stops on first run is the wrong first impression.
+
 ## 2.1.2
 
 ### Fixed
