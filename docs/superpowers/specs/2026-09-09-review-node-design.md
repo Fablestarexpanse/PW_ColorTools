@@ -125,6 +125,14 @@ from the worker thread is safe.
 `finally` is load-bearing: an interrupt, an upstream error or a browser that
 never answers must not leave a hold that the next run inherits.
 
+Two failure modes have chosen answers. A node with no `unique_id` cannot be
+addressed by any panel, so holding would wait for a release that can never
+arrive; it logs and passes the batch through instead. And the silent block is
+written as `io.NodeOutput(ExecutionBlocker(None))` rather than through
+`NodeOutput`'s `block_execution` argument, because that argument treats
+`None` as "do not block" and an output carrying no args never reaches the code
+that would apply it.
+
 The batch is indexed with a list, which torch reads as a gather, so the output
 is a new tensor in the order the ratings asked for.
 
