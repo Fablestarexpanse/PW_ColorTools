@@ -1706,6 +1706,12 @@ var Panel = class {
    * which is what every layout function in the pack works in.
    */
   scale = 1;
+  /**
+   * Height this panel has added to its node beyond what the node had, and
+   * may therefore take back when the panel turns out taller than it asked
+   * for. A user's own resize never counts, so it is never removed.
+   */
+  grown = 0;
   canvas;
   env;
   ctx;
@@ -1801,11 +1807,13 @@ function contentWidth(nodeWidth, minWidth) {
 }
 function fitNode(node, panel) {
   const wanted = panel.spec.height(contentWidth(node.size[0], panel.spec.minWidth));
+  const before = node.size[1];
   fitPanel(node, wanted, panel.spec.minWidth);
+  panel.grown += node.size[1] - before;
   node.setSize?.([node.size[0], node.size[1]]);
   node.setDirtyCanvas?.(true, true);
 }
-function growNode(node, by) {
+function resizeNodeBy(node, by) {
   const target = node.size[1] + by;
   node.size[1] = target;
   node.setSize?.([node.size[0], target]);
@@ -1877,7 +1885,14 @@ function attachPanel(node, spec) {
     const stale = w !== panel.width || h !== panel.height || Math.abs(density() - panel.density) > 0.01;
     if (h > 0 && stale) panel.resize(w, h);
     const deficit = spec.height(w) - h;
-    if (deficit > 0.5) requestAnimationFrame(() => growNode(node, deficit));
+    if (deficit > 0.5) {
+      panel.grown += deficit;
+      requestAnimationFrame(() => resizeNodeBy(node, deficit));
+    } else if (deficit < -0.5 && panel.grown > 0) {
+      const back = Math.min(-deficit, panel.grown);
+      panel.grown -= back;
+      requestAnimationFrame(() => resizeNodeBy(node, -back));
+    }
   };
   const observer = new ResizeObserver(measure);
   observer.observe(canvas);

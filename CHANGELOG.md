@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.1
+
+### Fixed
+
+- **Nodes grew every time the graph ran, in Modern Node Design.** The renderer
+  changes a node's layout while it executes, the panel shrank for a frame, the
+  pack grew the node to compensate and never gave it back. Height the pack
+  adds is now remembered and returned once the panel is taller than it needs;
+  a user's own resize is left alone.
+- README screenshots retaken in Modern Node Design; `tools/capture_readme.py`
+  reproduces them.
+
 ## 2.1.0
 
 ### Added

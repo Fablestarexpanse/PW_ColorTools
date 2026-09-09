@@ -75,6 +75,12 @@ export class Panel {
    * which is what every layout function in the pack works in.
    */
   scale = 1;
+  /**
+   * Height this panel has added to its node beyond what the node had, and
+   * may therefore take back when the panel turns out taller than it asked
+   * for. A user's own resize never counts, so it is never removed.
+   */
+  grown = 0;
 
   private readonly canvas: CanvasLike;
   private readonly env: PanelEnv;
@@ -202,14 +208,16 @@ function contentWidth(nodeWidth: number, minWidth: number): number {
  */
 export function fitNode(node: NodeLike, panel: Panel): void {
   const wanted = panel.spec.height(contentWidth(node.size[0], panel.spec.minWidth));
+  const before = node.size[1];
   fitPanel(node, wanted, panel.spec.minWidth);
+  panel.grown += node.size[1] - before;
   // Modern lays out from `setSize`; Classic reads `size` directly. Do both.
   (node as any).setSize?.([node.size[0], node.size[1]]);
   node.setDirtyCanvas?.(true, true);
 }
 
-/** Make the node `by` pixels taller. Never shrinks. */
-function growNode(node: NodeLike, by: number): void {
+/** Change the node height by `by` pixels, in either direction. */
+function resizeNodeBy(node: NodeLike, by: number): void {
   const target = node.size[1] + by;
   node.size[1] = target;
   (node as any).setSize?.([node.size[0], target]);
@@ -322,8 +330,21 @@ export function attachPanel(node: NodeLike, spec: PanelSpec): Panel {
     // renderers hand the extra straight to this widget. Done next frame,
     // because changing layout from inside the observer is reported as an
     // observer loop.
+    //
+    // And the reverse: the Modern renderer changes a node's layout while it
+    // executes, which shrinks the panel for a frame and would grow the node
+    // for good. Height this code added is remembered and handed back once
+    // the panel is taller than it asked for; a user's own resize is not ours
+    // to take, so only what was added is ever removed.
     const deficit = spec.height(w) - h;
-    if (deficit > 0.5) requestAnimationFrame(() => growNode(node, deficit));
+    if (deficit > 0.5) {
+      panel.grown += deficit;
+      requestAnimationFrame(() => resizeNodeBy(node, deficit));
+    } else if (deficit < -0.5 && panel.grown > 0) {
+      const back = Math.min(-deficit, panel.grown);
+      panel.grown -= back;
+      requestAnimationFrame(() => resizeNodeBy(node, -back));
+    }
   };
   const observer = new ResizeObserver(measure);
   observer.observe(canvas);
