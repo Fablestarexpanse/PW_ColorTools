@@ -1698,6 +1698,17 @@ function fitPanel(node, panelHeight2, minWidth) {
 }
 
 // src/widgets/panel.ts
+function coalesced(schedule, fn) {
+  let pending2 = false;
+  return () => {
+    if (pending2) return;
+    pending2 = true;
+    schedule(() => {
+      pending2 = false;
+      fn();
+    });
+  };
+}
 var Panel = class {
   spec;
   /**
@@ -1875,6 +1886,28 @@ function attachPanel(node, spec) {
     hideOnZoom: false
   });
   widget.serialize = false;
+  const widgetChanged = coalesced(
+    (fn) => requestAnimationFrame(fn),
+    () => {
+      spec.onWidgetChange?.();
+      panel.invalidate();
+    }
+  );
+  for (const w of node.widgets ?? []) {
+    if (w.name === WIDGET_NAME) continue;
+    const prior = w.callback;
+    w.callback = function(...args) {
+      const result = prior?.apply(this, args);
+      widgetChanged();
+      return result;
+    };
+  }
+  const priorWidgetChanged = node.onWidgetChanged;
+  node.onWidgetChanged = function(...args) {
+    const result = priorWidgetChanged?.apply(this, args);
+    widgetChanged();
+    return result;
+  };
   collapseInternalPreview(node);
   fitNode(node, panel);
   const measure = () => {
@@ -2079,7 +2112,10 @@ function registerCurves() {
           onWheel: (x, y, delta) => {
             const L = layout(panel.width, panel.height);
             return hit(L.preview, x, y) && ui.preview.onWheel(x, y, L.preview, delta);
-          }
+          },
+          // `strength` and `preserve_hue` are part of the grade the preview
+          // shows, so the lattice is rebaked whenever a widget moves.
+          onWidgetChange: () => ui.rebake(this)
         });
         const repaint2 = () => panel.invalidate();
         const refresh = () => {
@@ -2111,16 +2147,6 @@ function registerCurves() {
           panel.invalidate();
         }
         return r;
-      };
-      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
-      nodeType.prototype.onWidgetChanged = function() {
-        const res = onWidgetChanged?.apply(this, arguments);
-        const ui = uis.get(this);
-        if (ui) {
-          ui.rebake(this);
-          panelOf(this)?.invalidate();
-        }
-        return res;
       };
     }
   });
@@ -2264,12 +2290,6 @@ function registerGrain() {
           drawResponse(ctx, { x: 0, y: top + 20, w, h: PANEL_H - 20 }, node);
         }
       });
-      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
-      nodeType.prototype.onWidgetChanged = function() {
-        const res = onWidgetChanged?.apply(this, arguments);
-        panelOf(this)?.invalidate();
-        return res;
-      };
     }
   });
 }
@@ -2645,7 +2665,10 @@ function registerLook() {
           onWheel: (x, y, delta) => {
             const L = layout2(panel.width, ui);
             return hit(L.preview, x, y) && ui.preview.onWheel(x, y, L.preview, delta);
-          }
+          },
+          // Every slider on this node reshapes the grade, so the lattice the
+          // preview samples is rebuilt whenever one moves.
+          onWidgetChange: () => refreshPreview(this)
         });
         refreshPreview(this);
         const refresh = () => {
@@ -2674,12 +2697,6 @@ function registerLook() {
           priorRemoved?.call(this);
         };
         return r;
-      };
-      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
-      nodeType.prototype.onWidgetChanged = function() {
-        const res = onWidgetChanged?.apply(this, arguments);
-        refreshPreview(this);
-        return res;
       };
     }
   });

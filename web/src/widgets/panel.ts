@@ -51,6 +51,28 @@ export interface PanelSpec {
   onPointerMove?: (x: number, y: number, m: PointerMods) => boolean;
   onPointerUp?: (x: number, y: number, m: PointerMods) => boolean;
   onWheel?: (x: number, y: number, delta: number) => boolean;
+  /**
+   * A widget on this node changed. Re-derive whatever the panel draws from
+   * widget values; the repaint is scheduled for you. Coalesced, so a drag
+   * costs one call per frame rather than one per pixel.
+   */
+  onWidgetChange?: () => void;
+}
+
+/**
+ * Wrap `fn` so that however often it is asked, it runs once before the next
+ * frame. `schedule` is `requestAnimationFrame` in the browser.
+ */
+export function coalesced(schedule: (fn: () => void) => void, fn: () => void): () => void {
+  let pending = false;
+  return () => {
+    if (pending) return;
+    pending = true;
+    schedule(() => {
+      pending = false;
+      fn();
+    });
+  };
 }
 
 /** What `Panel` needs of a canvas: enough for a stand-in under node. */
@@ -307,6 +329,37 @@ export function attachPanel(node: NodeLike, spec: PanelSpec): Panel {
   });
   // The option alone does not stop serialisation on 1.49.6; the property does.
   widget.serialize = false;
+
+  // A widget edit has to reach the panel, and the two renderers disagree about
+  // how it is announced: Classic calls the node's `onWidgetChanged`, Modern
+  // only calls the widget's own `callback`. Listening to `onWidgetChanged`
+  // alone is why every preview froze under Modern the moment the graph had
+  // run — the sliders moved and nothing rebaked. Listen to both.
+  const widgetChanged = coalesced(
+    (fn) => requestAnimationFrame(fn),
+    () => {
+      spec.onWidgetChange?.();
+      panel.invalidate();
+    },
+  );
+  for (const w of node.widgets ?? []) {
+    if (w.name === WIDGET_NAME) continue;
+    const prior = w.callback as ((...args: any[]) => any) | undefined;
+    // LiteGraph passes (value, canvas, node, pos, event); the Vue renderer
+    // passes the value alone. Neither is the declared shape, so this is
+    // written to forward whatever it was given.
+    (w as any).callback = function (this: unknown, ...args: any[]) {
+      const result = prior?.apply(this, args);
+      widgetChanged();
+      return result;
+    };
+  }
+  const priorWidgetChanged = (node as any).onWidgetChanged;
+  (node as any).onWidgetChanged = function (this: unknown, ...args: any[]) {
+    const result = priorWidgetChanged?.apply(this, args);
+    widgetChanged();
+    return result;
+  };
 
   collapseInternalPreview(node);
   fitNode(node, panel);

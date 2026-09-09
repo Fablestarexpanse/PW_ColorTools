@@ -226,6 +226,9 @@ export function registerCurves(): void {
             const L = layout(panel.width, panel.height);
             return hit(L.preview, x, y) && ui.preview.onWheel(x, y, L.preview, delta);
           },
+          // `strength` and `preserve_hue` are part of the grade the preview
+          // shows, so the lattice is rebaked whenever a widget moves.
+          onWidgetChange: () => ui.rebake(this),
         });
         const repaint = () => panel.invalidate();
 
@@ -273,18 +276,6 @@ export function registerCurves(): void {
           panel.invalidate();
         }
         return r;
-      };
-
-      // The preview follows the strength and preserve-hue widgets too.
-      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
-      nodeType.prototype.onWidgetChanged = function (this: NodeLike) {
-        const res = onWidgetChanged?.apply(this, arguments as any);
-        const ui = uis.get(this);
-        if (ui) {
-          ui.rebake(this);
-          panelOf(this)?.invalidate();
-        }
-        return res;
       };
     },
   });

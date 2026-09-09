@@ -15,7 +15,6 @@ import { tonalWeight } from '../core/tonal.ts';
 import { app, getWidget, type NodeLike } from '../comfy.ts';
 import { BADGE, PW } from '../theme.ts';
 import { fillPanel, hairline, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
-import { panelOf } from '../widgets/panel.ts';
 import { attachSpatialPreview } from './spatial_preview.ts';
 
 const M = PW.metrics;
@@ -97,14 +96,6 @@ export function registerGrain(): void {
           drawResponse(ctx, { x: 0, y: top + 20, w, h: PANEL_H - 20 }, node);
         },
       });
-
-      // Redraw the response curve as the sliders move.
-      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
-      nodeType.prototype.onWidgetChanged = function (this: NodeLike) {
-        const res = onWidgetChanged?.apply(this, arguments as any);
-        panelOf(this)?.invalidate();
-        return res;
-      };
     },
   });
 }

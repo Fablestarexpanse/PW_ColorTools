@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.2
+
+### Fixed
+
+- **In Modern Node Design, the previews stopped following the sliders.** Move
+  a control after the graph had run and nothing on the panel changed. The two
+  renderers announce a widget edit differently: the Classic one calls the
+  node's `onWidgetChanged`, which is what the pack listened to, while the
+  Modern one calls only the widget's own callback. Panels now listen to both,
+  coalesced to one rebake per frame, so a drag stays cheap.
+
+  PW Optics is unaffected and unchanged: its preview is the node's real
+  output, badged `render only`, and it updates when the graph next runs.
+
 ## 2.1.1
 
 ### Fixed

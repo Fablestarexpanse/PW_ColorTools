@@ -472,6 +472,9 @@ export function registerLook(): void {
             const L = layout(panel.width, ui);
             return hit(L.preview, x, y) && ui.preview.onWheel(x, y, L.preview, delta);
           },
+          // Every slider on this node reshapes the grade, so the lattice the
+          // preview samples is rebuilt whenever one moves.
+          onWidgetChange: () => refreshPreview(this),
         });
 
         refreshPreview(this);
@@ -512,14 +515,6 @@ export function registerLook(): void {
         };
 
         return r;
-      };
-
-      // Any widget change reshapes the grade, so the preview must follow.
-      const onWidgetChanged = nodeType.prototype.onWidgetChanged;
-      nodeType.prototype.onWidgetChanged = function (this: NodeLike) {
-        const res = onWidgetChanged?.apply(this, arguments as any);
-        refreshPreview(this);
-        return res;
       };
     },
   });

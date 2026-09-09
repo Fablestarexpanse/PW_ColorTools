@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { Panel, type PanelSpec } from '../src/widgets/panel.ts';
+import { Panel, coalesced, type PanelSpec } from '../src/widgets/panel.ts';
 
 function fakeCanvas(left = 10, top = 20) {
   const calls: string[] = [];
@@ -132,5 +132,22 @@ describe('Panel pointer routing', () => {
     assert.equal(q.length, 0);
     p.wheel(5, 5, -100);
     assert.equal(q.length, 1);
+  });
+});
+
+describe('coalesced', () => {
+  it('runs once however many times it is asked, then can run again', () => {
+    const q: (() => void)[] = [];
+    let n = 0;
+    const ask = coalesced((f) => q.push(f), () => n++);
+    ask();
+    ask();
+    ask();
+    assert.equal(q.length, 1, 'a burst schedules one run');
+    q[0]();
+    assert.equal(n, 1);
+    ask();
+    q[1]();
+    assert.equal(n, 2, 'the next burst runs again');
   });
 });
