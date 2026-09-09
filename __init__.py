@@ -58,11 +58,15 @@ if _COMFY_AVAILABLE:
             ok = False
             try:
                 from .pw_color.preview_server import register_routes
+                from .pw_color.review_server import register_review_routes
 
+                # Both, and in this order, so a failure in the newer one cannot
+                # cost the previews every node depends on.
                 ok = register_routes()
+                ok = register_review_routes() and ok
             except Exception:  # pragma: no cover
-                _log.warning("PW Color: preview routes unavailable", exc_info=True)
-            _log.info("PW Color %s loaded (preview routes: %s)", __version__, "on" if ok else "off")
+                _log.warning("PW Color: routes unavailable", exc_info=True)
+            _log.info("PW Color %s loaded (routes: %s)", __version__, "on" if ok else "off")
 
     async def comfy_entrypoint() -> ComfyExtension:
         return PWColorExtension()
