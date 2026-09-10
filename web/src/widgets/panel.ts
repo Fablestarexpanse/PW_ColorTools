@@ -9,7 +9,7 @@
  * a `<canvas>` inside `node.addDOMWidget`, and the existing drawing classes
  * draw into it in local coordinates. One code path, both designs.
  *
- * Measured on frontend 1.49.6 (see the spec in `docs/superpowers/specs`):
+ * Measured on frontend 1.49.6:
  *
  * - In Modern, every DOM widget with a `computeLayoutSize` function gets a grid
  *   row of `auto`, and all such rows share the node's leftover height. So there
