@@ -3066,6 +3066,26 @@ function drawSavedHint(ctx, strip, node) {
   text(ctx, `saved ${name}`, strip.x, strip.y + strip.h + 12, { colour: PW.color.textMute });
 }
 
+// src/core/reach.ts
+var MUTED = 2;
+var BYPASSED = 4;
+function outputsDownstream(start, reach) {
+  const seen = /* @__PURE__ */ new Set([String(start)]);
+  const found = [];
+  const queue = [...reach.next(start)];
+  while (queue.length) {
+    const id = queue.shift();
+    const key = String(id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const mode = reach.mode(id);
+    if (mode === MUTED) continue;
+    if (mode !== BYPASSED && reach.isOutput(id)) found.push(key);
+    queue.push(...reach.next(id));
+  }
+  return found;
+}
+
 // src/core/stars.ts
 var STARS = 5;
 function starHit(x, y, cells, starSize) {
@@ -3098,7 +3118,17 @@ var CELL_GAP = 8;
 var MIN_WIDTH4 = 420;
 var uis3 = /* @__PURE__ */ new WeakMap();
 function blank() {
-  return { holding: false, count: 0, ratings: [], focus: 0, views: /* @__PURE__ */ new Map(), thumbs: /* @__PURE__ */ new Map(), note: "" };
+  return {
+    count: 0,
+    ratings: [],
+    pending: 0,
+    epoch: -1,
+    focus: 0,
+    views: /* @__PURE__ */ new Map(),
+    thumbs: /* @__PURE__ */ new Map(),
+    note: "",
+    sentAutoPass: null
+  };
 }
 function columns(width) {
   return Math.max(1, Math.floor((width + CELL_GAP) / (CELL_W + CELL_GAP)));
@@ -3127,6 +3157,11 @@ function panelHeight2(w, ui) {
   const rows = rowCount(w, ui.count);
   return HEADER_H5 + 6 + VIEW_H + M6.gapSection + rows * CELL_H2 + (rows - 1) * CELL_GAP + M6.padding;
 }
+function chips(ctx, header) {
+  const release2 = headerChip(ctx, header, "release");
+  const clear = headerChip(ctx, { ...header, w: release2.x - header.x - 6 }, "clear");
+  return { release: release2, clear };
+}
 function star(ctx, cx, cy, radius, filled) {
   ctx.beginPath();
   for (let i = 0; i < 10; i++) {
@@ -3150,6 +3185,7 @@ function star(ctx, cx, cy, radius, filled) {
 async function loadFrame(node, ui, kind, index) {
   const into = kind === "image" ? ui.views : ui.thumbs;
   if (into.has(index)) return;
+  const epoch = ui.epoch;
   try {
     const res = await fetchPw(`/pw_color/review/${node.id}/${kind}/${index}`);
     if (!res.ok) return;
@@ -3161,29 +3197,42 @@ async function loadFrame(node, ui, kind, index) {
       img.src = url;
     });
     URL.revokeObjectURL(url);
+    if (ui.epoch !== epoch) return;
     into.set(index, img);
     panelOf(node)?.invalidate();
   } catch {
   }
 }
+function reportAutoPass(node, ui) {
+  const value = !!getWidget(node, "auto_pass")?.value;
+  if (ui.sentAutoPass === value || node.id == null || Number(node.id) < 0) return;
+  ui.sentAutoPass = value;
+  postPw(`/pw_color/review/${node.id}/mode`, { auto_pass: value }).catch(() => {
+    ui.sentAutoPass = null;
+  });
+}
 async function syncState(node, ui) {
+  reportAutoPass(node, ui);
   try {
     const res = await fetchPw(`/pw_color/review/${node.id}`);
     if (!res.ok) return;
     const state = await res.json();
-    const arrived = !ui.holding && !!state.holding;
-    ui.holding = !!state.holding;
-    ui.count = state.count ?? 0;
-    ui.ratings = Array.isArray(state.ratings) ? state.ratings.slice() : [];
-    if (arrived) {
+    const epoch = state.epoch ?? 0;
+    if (epoch !== ui.epoch) {
       ui.views.clear();
       ui.thumbs.clear();
       ui.focus = 0;
-      ui.note = "";
+      ui.epoch = epoch;
     }
+    const hadPending = ui.pending;
+    ui.count = state.count ?? 0;
+    ui.ratings = Array.isArray(state.ratings) ? state.ratings.slice() : [];
+    ui.pending = state.pending ?? 0;
+    if (hadPending && !ui.pending && ui.note.startsWith("sending")) ui.note = `sent ${hadPending}`;
+    if (ui.focus >= ui.count) ui.focus = Math.max(0, ui.count - 1);
     const panel = panelOf(node);
     if (panel) fitNode(node, panel);
-    if (ui.holding) {
+    if (ui.count) {
       void loadFrame(node, ui, "image", ui.focus);
       for (let i = 0; i < ui.count; i++) void loadFrame(node, ui, "thumb", i);
     }
@@ -3191,19 +3240,58 @@ async function syncState(node, ui) {
   } catch {
   }
 }
-async function releaseHold(node, ui) {
-  if (!ui.holding) return;
-  const kept = keptCount(ui.ratings);
+function saveRatings(node, ui) {
+  postPw(`/pw_color/review/${node.id}/ratings`, { ratings: ui.ratings }).catch(() => {
+  });
+}
+function deliveryTargets(node) {
+  const graph = node.graph ?? app.graph;
+  const byId = (id) => graph?.getNodeById?.(id);
+  const link = (id) => graph?.getLink?.(id) ?? graph?.links?.get?.(id) ?? graph?.links?.[id];
+  try {
+    return outputsDownstream(node.id, {
+      next: (id) => (byId(id)?.outputs ?? []).flatMap((o) => o?.links ?? []).map((l) => link(l)?.target_id).filter((t) => t != null),
+      isOutput: (id) => !!byId(id)?.constructor?.nodeData?.output_node,
+      mode: (id) => byId(id)?.mode ?? 0
+    });
+  } catch {
+    return [];
+  }
+}
+async function release(node, ui) {
+  if (!ui.count || ui.pending) return;
   try {
     const res = await postPw(`/pw_color/review/${node.id}/release`, { ratings: ui.ratings });
-    ui.note = res.ok ? kept ? `sent ${kept} of ${ui.count}` : "nothing kept" : "that batch is no longer held";
+    if (!res.ok) {
+      ui.note = "the tray was already empty";
+    } else {
+      const { kept } = await res.json();
+      if (!kept) {
+        ui.note = "nothing rated, so the tray was emptied";
+      } else {
+        ui.pending = kept;
+        ui.note = `sending ${kept}`;
+        const targets = deliveryTargets(node);
+        await app.queuePrompt(-1, 1, targets.length ? targets : void 0);
+      }
+    }
+  } catch {
+    ui.note = "could not queue the delivery; the next run will carry it";
+  }
+  await syncState(node, ui);
+}
+async function clearTray(node, ui) {
+  try {
+    await postPw(`/pw_color/review/${node.id}/clear`, {});
+    ui.note = "tray cleared";
   } catch {
     ui.note = "could not reach the server";
   }
-  ui.holding = false;
-  ui.views.clear();
-  ui.thumbs.clear();
-  panelOf(node)?.invalidate();
+  await syncState(node, ui);
+}
+function idleText(node, ui) {
+  if (ui.note) return ui.note;
+  return getWidget(node, "auto_pass")?.value ? "auto_pass is on: images go straight through." : "The tray is empty. Each run adds its images here.";
 }
 function registerReview() {
   app.registerExtension({
@@ -3226,11 +3314,12 @@ function registerReview() {
         const panel = attachPanel(this, {
           minWidth: MIN_WIDTH4,
           height: (w) => panelHeight2(w, ui),
+          onWidgetChange: () => reportAutoPass(this, ui),
           draw: (ctx, rr) => {
             const L = layout4(rr.w);
-            const label = ui.holding ? `Review \u2014 ${ui.count} held, ${keptCount(ui.ratings)} kept` : "Review";
+            const label = ui.pending ? `Review \u2014 sending ${ui.pending}` : ui.count ? `Review \u2014 ${ui.count} in tray, ${keptCount(ui.ratings)} kept` : "Review";
             sectionHeader(ctx, label, L.header);
-            if (ui.holding) headerChip(ctx, L.header, "release");
+            if (ui.count && !ui.pending) chips(ctx, L.header);
             fillPanel(ctx, L.view, PW.color.well, M6.radiusPanel, PW.color.border);
             const focus = ui.views.get(ui.focus);
             if (focus) {
@@ -3243,8 +3332,7 @@ function registerReview() {
               ctx.drawImage(focus, L.view.x + (L.view.w - w) / 2, L.view.y + (L.view.h - h) / 2, w, h);
               ctx.restore();
             } else {
-              const idle = ui.holding ? "loading" : ui.note || "Nothing held. Run the graph.";
-              text(ctx, idle, L.view.x + L.view.w / 2, L.view.y + L.view.h / 2, {
+              text(ctx, ui.count ? "loading" : idleText(this, ui), L.view.x + L.view.w / 2, L.view.y + L.view.h / 2, {
                 colour: PW.color.textMute,
                 align: "center"
               });
@@ -3275,15 +3363,23 @@ function registerReview() {
           },
           onPointerDown: (x, y) => {
             const L = layout4(panel.width);
-            if (ui.holding && hit(headerChip(panel.context, L.header, "release"), x, y, 3)) {
-              void releaseHold(this, ui);
-              return true;
+            if (ui.count && !ui.pending) {
+              const c = chips(panel.context, L.header);
+              if (hit(c.release, x, y, 3)) {
+                void release(this, ui);
+                return true;
+              }
+              if (hit(c.clear, x, y, 3)) {
+                void clearTray(this, ui);
+                return true;
+              }
             }
-            if (!ui.holding) return false;
+            if (!ui.count) return false;
             const cells = gridCells(L.strip, ui.count);
-            const onStar = starHit(x, y, cells, STAR_H);
+            const onStar = ui.pending ? null : starHit(x, y, cells, STAR_H);
             if (onStar) {
               ui.ratings[onStar.index] = nextRating(ui.ratings[onStar.index] ?? 0, onStar.star);
+              saveRatings(this, ui);
               return true;
             }
             const picked = cells.findIndex((c) => hit({ x: c.x, y: c.y, w: c.w, h: THUMB_H2 }, x, y));

@@ -5,7 +5,7 @@ rather than broadcast colourists. From **Promptwaffle / BotWaffle Studio**.
 
 ![Before and after](docs/images/before_after.png)
 
-> **Status: 2.2.** Nine nodes, built and tested: PW Look, PW Curves, PW Grain,
+> **Status: 2.3.** Nine nodes, built and tested: PW Look, PW Curves, PW Grain,
 > PW Optics, PW Match Source, PW Palette, PW Scopes, PW Look I/O and PW Review.
 
 ## Install
@@ -26,7 +26,7 @@ already has. The web bundle is committed, so a plain clone works with no node
 toolchain.
 
 **Requires** ComfyUI 0.27+ with frontend 1.40+. The colour nodes are tested on
-frontend 1.47.11 and 1.49.6; everything in 2.2, PW Review included, is
+frontend 1.47.11 and 1.49.6; everything in 2.3, PW Review included, is
 verified on ComfyUI 0.34.0 with frontend 1.49.6.
 
 **Node design.** Panels are hosted on DOM widgets, so the pack looks and works
@@ -281,12 +281,13 @@ IMAGE you can wire into a Save Image node and keep next to the frame it measured
 
 ### PW Review
 
-<img src="docs/images/pw_review.png" alt="PW Review holding a batch of 25 images" width="480">
+<img src="docs/images/pw_review.png" alt="PW Review with 25 images in its tray, 17 of them rated" width="480">
 
-A place to stop and look. Put it where a batch leaves the sampler and the run
-halts at the node with every image in front of you. Rate the ones worth
-keeping, release, and only those carry on down the graph, best first. The
-frames above are 25 Krea-2 generations from a single prompt.
+A tray for what the sampler makes. Every run drops its images into the node
+and finishes straight away, so a queue of runs keeps generating while the tray
+fills. Rate the ones worth keeping whenever you are ready, press release, and
+only those carry on down the graph, best first. The frames above are 25 Krea-2
+generations from a single prompt.
 
 **Where it goes.** Between the decode and whatever saves or finishes the
 images:
@@ -295,34 +296,42 @@ images:
 
 **Using it.**
 
+- Queue as many runs as you like. Nothing downstream of the node runs while
+  images are collecting, so nothing is saved until you choose.
 - Click a thumbnail to see it large in the view above the grid.
 - Click a star under a thumbnail to rate it one to five. Click the same star
-  again to clear it back to unrated.
-- Click **release**, at the right of the panel header, to send the rated images
-  on. It only appears while a batch is held.
+  again to clear it back to unrated. Ratings are kept as you go, even while
+  new images keep arriving.
+- Click **release** to send the rated images on. It queues one short run at
+  the front of the queue that delivers them: it skips the sampler and runs
+  only the nodes after PW Review.
+- Click **clear** to empty the tray without sending anything.
 
-The header keeps count as you go: above, 25 held and 17 kept.
+The header keeps count as you go: above, 25 in the tray and 17 kept.
 
-**What comes out.** The rated images leave by the node's one image output,
-highest rating first; equal ratings keep the order they were generated in.
-Unrated images are dropped — that is how you reject a frame, and why there is
-no separate reject button to forget. Rating nothing and releasing stops the run
-there, quietly, because rejecting every frame is a decision rather than an
-error.
+**What comes out.** The rated images leave by the node's one image output as a
+single batch, highest rating first; equal ratings keep the order they were
+generated in. Unrated images are dropped — that is how you reject a frame, and
+why there is no separate reject button to forget. Releasing with nothing rated
+empties the tray and sends nothing.
 
-**auto_pass** sends every image straight through without stopping, for
-unattended runs. It is also what the node's reset turns on.
+**auto_pass** sends each new image straight through instead of collecting it,
+for unattended runs. It takes effect at once, including for runs that were
+already waiting in the queue when you flipped it. It is also what the node's
+reset turns on.
 
 **Good to know.**
 
-- The batch stays in memory while it waits, and the run keeps its place in the
-  queue, so anything queued behind it waits too.
-- Reloading the page while a batch is held brings it back, and ComfyUI's
-  Cancel ends a held run the usual way.
+- The tray lives in the server's memory. Reloading the page brings it back;
+  restarting ComfyUI empties it.
+- Images that finish after you press release were not part of that review, so
+  they stay in the tray for the next one.
+- Images from runs at different resolutions are resized to match the best-rated
+  one, the same way core's Image Batch node does it.
 - Widen the node for more thumbnails per row. The grid reflows, which is how 25
   images fit in five rows at the width shown.
-- It is deliberately **not** in the drop-in workflow: a template that stops on
-  its first run and waits to be rated is the wrong first impression.
+- It is deliberately **not** in the drop-in workflow: a template that saves
+  nothing on its first run until you rate it is the wrong first impression.
 
 ### PW Look I/O
 

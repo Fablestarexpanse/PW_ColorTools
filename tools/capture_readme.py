@@ -10,7 +10,7 @@ element in Modern Node Design at 2x. Writes into docs/images.
     python main.py --cpu --port 8199 --disable-auto-launch    # in ComfyUI
     python tools/capture_readme.py [--review-folder DIR]
 
-PW Review only looks like anything while it holds a batch, so its main photo
+PW Review only looks like anything with images in its tray, so its main photo
 needs real images: pass --review-folder with a folder of generated frames
 (the README's shot is 25 Krea-2 images from one prompt). That capture uses
 LoadImagesFromFolderKJ, so it needs KJNodes installed. Without the flag the
@@ -171,7 +171,7 @@ with sync_playwright() as p:
     }"""
 
     if REVIEW_FOLDER:
-        # A real batch, held and rated across the grid. Widened to five across
+        # A real batch, collected in the tray and rated across the grid. Widened to five across
         # so 25 frames is five rows rather than nine.
         page.evaluate(fresh, "capture-review")
         review_id = page.evaluate(
@@ -195,7 +195,7 @@ with sync_playwright() as p:
         for _ in range(180):
             time.sleep(1)
             with urllib.request.urlopen(f"{BASE}/api/pw_color/review/{review_id}", timeout=5) as r:
-                if json.load(r)["holding"]:
+                if json.load(r)["count"]:
                     break
         page.wait_for_timeout(9000)
         cols = page.evaluate(
@@ -229,8 +229,8 @@ with sync_playwright() as p:
         print("pw_review.png")
         urllib.request.urlopen(
             urllib.request.Request(
-                f"{BASE}/api/pw_color/review/{review_id}/release",
-                data=json.dumps({"ratings": ratings}).encode(),
+                f"{BASE}/api/pw_color/review/{review_id}/clear",
+                data=b"{}",
                 headers={"Content-Type": "application/json"},
                 method="POST",
             ),

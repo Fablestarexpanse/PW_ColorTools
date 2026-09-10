@@ -1,22 +1,27 @@
 /**
  * PW Review — node wiring.
  *
- * The panel *is* the node. Without it a held run has no way to continue
- * except being cancelled, so this draws the batch, takes the ratings and
- * posts them back.
+ * The panel is the tray. Runs drop their images into it on the server and
+ * finish; this draws what has collected, keeps the ratings on the server as
+ * they change (so the next arrival does not wipe them), and on release queues
+ * the one run that delivers the keepers.
  *
- * State arrives two ways. A websocket message wakes the panel when a run
- * reaches the node, and the panel asks the server for the hold when it is
- * created — which is what makes reloading the page mid-hold recover the batch
- * rather than stranding the run.
+ * That run is queued at the front and aimed only at the output nodes
+ * downstream of this one, so it touches nothing else in the graph. The node
+ * itself asks for no new image on that run, which is what skips the sampler.
+ *
+ * auto_pass is reported to the server whenever it changes. ComfyUI copies
+ * widget values into a run when it is queued, so without this, flipping the
+ * switch would do nothing to runs already waiting in the queue.
  *
  * Hosted on the shared DOM panel, so it draws in both node designs. All
  * coordinates below are panel-local.
  */
 
 import { fetchPw, postPw } from '../fetch.ts';
-import { api, app, type NodeLike } from '../comfy.ts';
+import { api, app, getWidget, type NodeLike } from '../comfy.ts';
 import { PW } from '../theme.ts';
+import { outputsDownstream, type NodeId } from '../core/reach.ts';
 import { STARS, keptCount, nextRating, starHit, type Cell } from '../core/stars.ts';
 import { fillPanel, headerChip, hit, sectionHeader, text, type Ctx, type Rect } from '../widgets/draw.ts';
 import { attachPanel, fitNode, panelOf, type Panel } from '../widgets/panel.ts';
@@ -33,20 +38,35 @@ const CELL_GAP = 8;
 const MIN_WIDTH = 420;
 
 interface ReviewUI {
-  holding: boolean;
   count: number;
   ratings: number[];
+  /** Keepers chosen and waiting for the run that delivers them. */
+  pending: number;
+  /** Changes whenever frames leave the tray, renumbering the rest. */
+  epoch: number;
   focus: number;
   views: Map<number, HTMLImageElement>;
   thumbs: Map<number, HTMLImageElement>;
-  /** What happened last, shown once the batch has gone. */
+  /** What happened last, shown while the tray is empty. */
   note: string;
+  /** The auto_pass value the server last heard from this panel. */
+  sentAutoPass: boolean | null;
 }
 
 const uis = new WeakMap<object, ReviewUI>();
 
 function blank(): ReviewUI {
-  return { holding: false, count: 0, ratings: [], focus: 0, views: new Map(), thumbs: new Map(), note: '' };
+  return {
+    count: 0,
+    ratings: [],
+    pending: 0,
+    epoch: -1,
+    focus: 0,
+    views: new Map(),
+    thumbs: new Map(),
+    note: '',
+    sentAutoPass: null,
+  };
 }
 
 function columns(width: number): number {
@@ -82,6 +102,13 @@ function panelHeight(w: number, ui: ReviewUI): number {
   return HEADER_H + 6 + VIEW_H + M.gapSection + rows * CELL_H + (rows - 1) * CELL_GAP + M.padding;
 }
 
+/** The header's chips, right to left. Only drawn while there is a tray to act on. */
+function chips(ctx: Ctx | null, header: Rect): { release: Rect; clear: Rect } {
+  const release = headerChip(ctx, header, 'release');
+  const clear = headerChip(ctx, { ...header, w: release.x - header.x - 6 }, 'clear');
+  return { release, clear };
+}
+
 /**
  * A five-pointed star, drawn rather than typed.
  *
@@ -110,10 +137,11 @@ function star(ctx: Ctx, cx: number, cy: number, radius: number, filled: boolean)
   }
 }
 
-/** Fetch one frame of the held batch and keep it. Cheap to call twice. */
+/** Fetch one frame of the tray and keep it. Cheap to call twice. */
 async function loadFrame(node: NodeLike, ui: ReviewUI, kind: 'image' | 'thumb', index: number): Promise<void> {
   const into = kind === 'image' ? ui.views : ui.thumbs;
   if (into.has(index)) return;
+  const epoch = ui.epoch;
   try {
     const res = await fetchPw(`/pw_color/review/${node.id}/${kind}/${index}`);
     if (!res.ok) return;
@@ -125,33 +153,49 @@ async function loadFrame(node: NodeLike, ui: ReviewUI, kind: 'image' | 'thumb', 
       img.src = url;
     });
     URL.revokeObjectURL(url);
+    // Frames left while this was in flight, so index now names another frame.
+    if (ui.epoch !== epoch) return;
     into.set(index, img);
     panelOf(node)?.invalidate();
   } catch {
-    /* the hold went away underneath us; the next state fetch will say so */
+    /* the tray changed underneath us; the next state fetch will say so */
   }
 }
 
-/** Ask the server what this node is holding, and draw whatever it says. */
+/** Tell the server what the switch says, if it has not heard it yet. */
+function reportAutoPass(node: NodeLike, ui: ReviewUI): void {
+  const value = !!getWidget(node, 'auto_pass')?.value;
+  if (ui.sentAutoPass === value || node.id == null || Number(node.id) < 0) return;
+  ui.sentAutoPass = value;
+  postPw(`/pw_color/review/${node.id}/mode`, { auto_pass: value }).catch(() => {
+    ui.sentAutoPass = null; // try again on the next change or sync
+  });
+}
+
+/** Ask the server what this node's tray holds, and draw whatever it says. */
 async function syncState(node: NodeLike, ui: ReviewUI): Promise<void> {
+  reportAutoPass(node, ui);
   try {
     const res = await fetchPw(`/pw_color/review/${node.id}`);
     if (!res.ok) return;
     const state = await res.json();
-    const arrived = !ui.holding && !!state.holding;
-    ui.holding = !!state.holding;
-    ui.count = state.count ?? 0;
-    ui.ratings = Array.isArray(state.ratings) ? state.ratings.slice() : [];
-    if (arrived) {
-      // A new batch, so nothing decoded for the last one is worth keeping.
+    const epoch = state.epoch ?? 0;
+    if (epoch !== ui.epoch) {
+      // Frames left the tray, so every cached index may name another frame.
       ui.views.clear();
       ui.thumbs.clear();
       ui.focus = 0;
-      ui.note = '';
+      ui.epoch = epoch;
     }
+    const hadPending = ui.pending;
+    ui.count = state.count ?? 0;
+    ui.ratings = Array.isArray(state.ratings) ? state.ratings.slice() : [];
+    ui.pending = state.pending ?? 0;
+    if (hadPending && !ui.pending && ui.note.startsWith('sending')) ui.note = `sent ${hadPending}`;
+    if (ui.focus >= ui.count) ui.focus = Math.max(0, ui.count - 1);
     const panel = panelOf(node);
     if (panel) fitNode(node, panel);
-    if (ui.holding) {
+    if (ui.count) {
       void loadFrame(node, ui, 'image', ui.focus);
       for (let i = 0; i < ui.count; i++) void loadFrame(node, ui, 'thumb', i);
     }
@@ -161,23 +205,73 @@ async function syncState(node: NodeLike, ui: ReviewUI): Promise<void> {
   }
 }
 
-async function releaseHold(node: NodeLike, ui: ReviewUI): Promise<void> {
-  if (!ui.holding) return;
-  const kept = keptCount(ui.ratings);
+function saveRatings(node: NodeLike, ui: ReviewUI): void {
+  postPw(`/pw_color/review/${node.id}/ratings`, { ratings: ui.ratings }).catch(() => {
+    /* kept locally; the release sends them again anyway */
+  });
+}
+
+/** The output nodes this node feeds, for aiming the delivery run. */
+function deliveryTargets(node: NodeLike): string[] {
+  const graph: any = (node as any).graph ?? app.graph;
+  const byId = (id: NodeId) => graph?.getNodeById?.(id);
+  const link = (id: number) => graph?.getLink?.(id) ?? graph?.links?.get?.(id) ?? graph?.links?.[id];
+  try {
+    return outputsDownstream(node.id, {
+      next: (id) =>
+        (byId(id)?.outputs ?? [])
+          .flatMap((o: any) => o?.links ?? [])
+          .map((l: number) => link(l)?.target_id)
+          .filter((t: unknown) => t != null),
+      isOutput: (id) => !!byId(id)?.constructor?.nodeData?.output_node,
+      mode: (id) => byId(id)?.mode ?? 0,
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function release(node: NodeLike, ui: ReviewUI): Promise<void> {
+  if (!ui.count || ui.pending) return;
   try {
     const res = await postPw(`/pw_color/review/${node.id}/release`, { ratings: ui.ratings });
-    ui.note = res.ok
-      ? kept
-        ? `sent ${kept} of ${ui.count}`
-        : 'nothing kept'
-      : 'that batch is no longer held';
+    if (!res.ok) {
+      ui.note = 'the tray was already empty';
+    } else {
+      const { kept } = await res.json();
+      if (!kept) {
+        ui.note = 'nothing rated, so the tray was emptied';
+      } else {
+        ui.pending = kept;
+        ui.note = `sending ${kept}`;
+        // Aimed at this node's outputs when they can be found. A graph that
+        // routes through frontend-only nodes may hide them; the whole graph
+        // is then queued, and the node still skips the sampler.
+        const targets = deliveryTargets(node);
+        await app.queuePrompt(-1, 1, targets.length ? targets : undefined);
+      }
+    }
+  } catch {
+    ui.note = 'could not queue the delivery; the next run will carry it';
+  }
+  await syncState(node, ui);
+}
+
+async function clearTray(node: NodeLike, ui: ReviewUI): Promise<void> {
+  try {
+    await postPw(`/pw_color/review/${node.id}/clear`, {});
+    ui.note = 'tray cleared';
   } catch {
     ui.note = 'could not reach the server';
   }
-  ui.holding = false;
-  ui.views.clear();
-  ui.thumbs.clear();
-  panelOf(node)?.invalidate();
+  await syncState(node, ui);
+}
+
+function idleText(node: NodeLike, ui: ReviewUI): string {
+  if (ui.note) return ui.note;
+  return getWidget(node, 'auto_pass')?.value
+    ? 'auto_pass is on: images go straight through.'
+    : 'The tray is empty. Each run adds its images here.';
 }
 
 export function registerReview(): void {
@@ -185,7 +279,7 @@ export function registerReview(): void {
     name: 'pw.color.review',
 
     async setup() {
-      // The node pushes this when a run reaches it, and again when it lets go.
+      // The node pushes this whenever its tray changes.
       api.addEventListener('pw_color.review', (e: any) => {
         const node = app.graph?.getNodeById?.(e?.detail?.node_id);
         const ui = node ? uis.get(node) : undefined;
@@ -206,14 +300,19 @@ export function registerReview(): void {
         const panel: Panel = attachPanel(this, {
           minWidth: MIN_WIDTH,
           height: (w) => panelHeight(w, ui),
+          onWidgetChange: () => reportAutoPass(this, ui),
           draw: (ctx, rr) => {
             const L = layout(rr.w);
             // No badge. The pack's badges say whether a panel's preview is
             // exact or approximate, and this panel is not a preview of
-            // anything — it is the batch itself, waiting.
-            const label = ui.holding ? `Review — ${ui.count} held, ${keptCount(ui.ratings)} kept` : 'Review';
+            // anything — it is the tray itself.
+            const label = ui.pending
+              ? `Review — sending ${ui.pending}`
+              : ui.count
+                ? `Review — ${ui.count} in tray, ${keptCount(ui.ratings)} kept`
+                : 'Review';
             sectionHeader(ctx, label, L.header);
-            if (ui.holding) headerChip(ctx, L.header, 'release');
+            if (ui.count && !ui.pending) chips(ctx, L.header);
 
             fillPanel(ctx, L.view, PW.color.well, M.radiusPanel, PW.color.border);
             const focus = ui.views.get(ui.focus);
@@ -227,8 +326,7 @@ export function registerReview(): void {
               ctx.drawImage(focus, L.view.x + (L.view.w - w) / 2, L.view.y + (L.view.h - h) / 2, w, h);
               ctx.restore();
             } else {
-              const idle = ui.holding ? 'loading' : ui.note || 'Nothing held. Run the graph.';
-              text(ctx, idle, L.view.x + L.view.w / 2, L.view.y + L.view.h / 2, {
+              text(ctx, ui.count ? 'loading' : idleText(this, ui), L.view.x + L.view.w / 2, L.view.y + L.view.h / 2, {
                 colour: PW.color.textMute,
                 align: 'center',
               });
@@ -262,15 +360,23 @@ export function registerReview(): void {
           },
           onPointerDown: (x, y) => {
             const L = layout(panel.width);
-            if (ui.holding && hit(headerChip(panel.context, L.header, 'release'), x, y, 3)) {
-              void releaseHold(this, ui);
-              return true;
+            if (ui.count && !ui.pending) {
+              const c = chips(panel.context, L.header);
+              if (hit(c.release, x, y, 3)) {
+                void release(this, ui);
+                return true;
+              }
+              if (hit(c.clear, x, y, 3)) {
+                void clearTray(this, ui);
+                return true;
+              }
             }
-            if (!ui.holding) return false;
+            if (!ui.count) return false;
             const cells = gridCells(L.strip, ui.count);
-            const onStar = starHit(x, y, cells, STAR_H);
+            const onStar = ui.pending ? null : starHit(x, y, cells, STAR_H);
             if (onStar) {
               ui.ratings[onStar.index] = nextRating(ui.ratings[onStar.index] ?? 0, onStar.star);
+              saveRatings(this, ui);
               return true;
             }
             const picked = cells.findIndex((c) => hit({ x: c.x, y: c.y, w: c.w, h: THUMB_H }, x, y));
@@ -283,7 +389,9 @@ export function registerReview(): void {
           },
         });
 
-        // A page reloaded while a run is held has to find it again.
+        // After a page reload the tray is still on the server; find it again.
+        // Deferred because the node has no id yet, and a saved workflow has
+        // not applied its widget values yet.
         setTimeout(() => void syncState(this, ui), 0);
 
         return created;

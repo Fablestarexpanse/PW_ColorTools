@@ -1,14 +1,14 @@
-"""The HTTP layer over a held batch.
+"""The HTTP layer over the review tray.
 
 Separate from `preview_server`, whose first paragraph promises that every
-route it serves is read-only. One of the routes here releases a run, and a
-module that says one thing while doing another is worse than two modules.
+route it serves is read-only. Several of these change state, and a module that
+says one thing while doing another is worse than two modules.
 
-On who can release. Holds are keyed by graph-local node id and nothing else,
-so any client that can reach the ComfyUI server can release one — exactly as
-any client that can reach it can already queue a prompt, cancel a run or read
-`/history`. Authentication is the deployment's job. This is written down
-rather than left to be discovered.
+On who can use them. Trays are keyed by graph-local node id and nothing else,
+so any client that can reach the ComfyUI server can rate, release or clear
+one - exactly as any client that can reach it can already queue a prompt,
+cancel a run or read `/history`. Authentication is the deployment's job. This
+is written down rather than left to be discovered.
 """
 
 from __future__ import annotations
@@ -16,15 +16,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Awaitable, Callable
 
-from .review import get_hold, release
+from . import review
 
 __all__ = ["register_review_routes"]
 
 _log = logging.getLogger("PW_Color")
 
-#: Set once *this process* has attached the handlers. Same guard, and the same
-#: reason, as the preview routes: aiohttp accepts a duplicate route happily and
-#: leaves two handlers on one path with no error and no way to tell.
+#: Set once *this process* has attached the handlers. aiohttp accepts a
+#: duplicate route happily and leaves two handlers on one path with no error.
 _routes_registered = False
 
 _NO_STORE = {"Cache-Control": "no-store"}
@@ -32,64 +31,103 @@ _NO_STORE = {"Cache-Control": "no-store"}
 Handler = Callable[[Any], Awaitable[Any]]
 
 
-def _image_handler(web: Any, attribute: str) -> Handler:
-    """Serve one image out of a held batch, or say why not.
+def _state(node_id: str) -> dict:
+    tray = review.get(node_id)
+    return {
+        "count": tray.count if tray else 0,
+        "ratings": list(tray.ratings) if tray else [],
+        "pending": len(tray.release) if tray and tray.release else 0,
+        "epoch": review.epoch(node_id),
+    }
 
-    The two image routes differ only in which encoded size they read, so they
-    are one function given the attribute to pull.
-    """
+
+def _state_handler(web: Any) -> Handler:
+    """What the panel draws, including after a page reload."""
 
     async def handler(request: Any) -> Any:
-        hold = get_hold(request.match_info["node_id"])
-        if hold is None:
-            return web.Response(status=404, text="nothing held")
+        return web.json_response(_state(request.match_info["node_id"]), headers=_NO_STORE)
+
+    return handler
+
+
+def _image_handler(web: Any, attribute: str) -> Handler:
+    """One frame out of the tray, at thumbnail or focus size."""
+
+    async def handler(request: Any) -> Any:
+        tray = review.get(request.match_info["node_id"])
+        if tray is None:
+            return web.Response(status=404, text="the tray is empty")
         try:
             index = int(request.match_info["index"])
         except (TypeError, ValueError):
             return web.Response(status=400, text="index must be a number")
-        frames = getattr(hold, attribute)
+        frames = getattr(tray, attribute)
         if not 0 <= index < len(frames):
-            return web.Response(status=404, text="no such image in the held batch")
+            return web.Response(status=404, text="no such frame in the tray")
         return web.Response(body=frames[index], content_type="image/jpeg", headers=_NO_STORE)
 
     return handler
 
 
-def _state_handler(web: Any) -> Handler:
-    """What the panel needs to draw itself, including after a page reload.
+async def _ratings_from(request: Any) -> list[int] | None:
+    try:
+        payload = await request.json()
+        return [int(r) for r in payload["ratings"]]
+    except Exception:
+        return None
 
-    Answers for a node that is not holding rather than 404ing: "nothing is
-    held" is the normal answer to this question, not a failure.
-    """
+
+def _ratings_handler(web: Any) -> Handler:
+    """Save the ratings so far, so the next arrival does not wipe them."""
 
     async def handler(request: Any) -> Any:
-        hold = get_hold(request.match_info["node_id"])
-        if hold is None:
-            return web.json_response({"holding": False, "count": 0, "ratings": []}, headers=_NO_STORE)
-        return web.json_response(
-            {"holding": True, "count": hold.count, "ratings": list(hold.ratings)}, headers=_NO_STORE
-        )
+        ratings = await _ratings_from(request)
+        if ratings is None:
+            return web.Response(status=400, text="expected {'ratings': [numbers]}")
+        if not review.set_ratings(request.match_info["node_id"], ratings):
+            return web.Response(status=404, text="the tray is empty")
+        return web.json_response({"saved": True}, headers=_NO_STORE)
 
     return handler
 
 
 def _release_handler(web: Any) -> Handler:
-    """Take the ratings and let the run continue.
+    """Choose the keepers. The browser then queues the run that delivers them."""
 
-    The body came from a browser, so a bad one is answered rather than raised:
-    an exception here would surface as a 500 with a traceback in the server log
-    and nothing useful on the node.
-    """
+    async def handler(request: Any) -> Any:
+        ratings = await _ratings_from(request)
+        if ratings is None:
+            return web.Response(status=400, text="expected {'ratings': [numbers]}")
+        node_id = request.match_info["node_id"]
+        if review.get(node_id) is None:
+            return web.Response(status=404, text="the tray is empty")
+        kept = review.request_release(node_id, ratings)
+        return web.json_response({"kept": kept}, headers=_NO_STORE)
+
+    return handler
+
+
+def _clear_handler(web: Any) -> Handler:
+    async def handler(request: Any) -> Any:
+        review.clear(request.match_info["node_id"])
+        return web.json_response({"cleared": True}, headers=_NO_STORE)
+
+    return handler
+
+
+def _mode_handler(web: Any) -> Handler:
+    """The auto_pass switch, live, so it reaches runs already queued."""
 
     async def handler(request: Any) -> Any:
         try:
             payload = await request.json()
-            ratings = [int(r) for r in payload["ratings"]]
+            value = payload["auto_pass"]
+            if not isinstance(value, bool):
+                raise TypeError
         except Exception:
-            return web.Response(status=400, text="expected {'ratings': [numbers]}")
-        if not release(request.match_info["node_id"], ratings):
-            return web.Response(status=404, text="nothing held")
-        return web.json_response({"released": True}, headers=_NO_STORE)
+            return web.Response(status=400, text="expected {'auto_pass': true|false}")
+        review.set_auto_pass(request.match_info["node_id"], value)
+        return web.json_response({"auto_pass": value}, headers=_NO_STORE)
 
     return handler
 
@@ -104,7 +142,10 @@ def _routing_table(web: Any) -> list[tuple[str, str, Handler]]:
         ("/pw_color/review/{node_id}", "GET", _state_handler(web)),
         ("/pw_color/review/{node_id}/thumb/{index}", "GET", _image_handler(web, "thumbs")),
         ("/pw_color/review/{node_id}/image/{index}", "GET", _image_handler(web, "views")),
+        ("/pw_color/review/{node_id}/ratings", "POST", _ratings_handler(web)),
         ("/pw_color/review/{node_id}/release", "POST", _release_handler(web)),
+        ("/pw_color/review/{node_id}/clear", "POST", _clear_handler(web)),
+        ("/pw_color/review/{node_id}/mode", "POST", _mode_handler(web)),
     ]
 
 

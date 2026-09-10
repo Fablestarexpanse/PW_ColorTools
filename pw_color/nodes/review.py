@@ -1,38 +1,39 @@
-"""PW Review — a batch, stopped for a look.
+"""PW Review — a tray for generated images.
 
-Every other node in this pack is a pure function of its inputs. This one waits
-for a person, and *where* it waits is the design: inside `execute`, as a
-coroutine, so the executor parks it as pending and the server keeps answering
-while a run is held.
+Each run does one of three things, and none of them waits:
 
-Ratings are one to five stars, and leaving an image unrated is how you reject
-it: only rated images continue, ordered best first. One gesture doing two
-jobs, which is why there is no separate reject button to forget to press.
+- **Collect.** The run's frames go in the node's tray and downstream is blocked
+  for that run, silently. Generation carries on, so Run set to four fills the
+  tray with four frames unattended.
+- **Pass.** With auto_pass on, the fresh image goes straight through and the
+  tray is left alone. The switch is read live, so flipping it reaches runs
+  that were already queued.
+- **Deliver.** After someone rates the tray and presses release, the next run
+  sends the keepers downstream, best first. It asks for no new image, so the
+  sampler and everything upstream of this node are skipped for that run.
 
-`auto_pass` is the way out for unattended work. It is also what the pack's
-reset turns on, because reset here means the image comes out as it went in,
-and for a gate that means it stops gating.
+That last part is what the image input being *lazy* is for. ComfyUI asks the
+node, through `check_lazy_status`, which lazy inputs it needs before running
+anything upstream; a node with a delivery waiting says "none".
+
+Ratings are one to five stars, and leaving a frame unrated is how you reject
+it. `auto_pass` is also what the pack's reset turns on, because reset here
+means the image comes out as it went in.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import torch
 from comfy_api.latest import io
 
+from .. import review
 from ..preview_cache import _executing_node_id
-from ..review import close, kept_order, open_hold
 
-__all__ = ["PW_Review", "NODES", "POLL_SECONDS"]
+__all__ = ["PW_Review", "NODES"]
 
 _log = logging.getLogger("PW_Color")
-
-#: How often a held run asks whether it may continue, in seconds. It is also
-#: how often Cancel is noticed, so it is short enough to feel immediate and
-#: long enough to cost nothing while a batch sits there for a minute.
-POLL_SECONDS = 0.2
 
 
 def _node_id(cls: type) -> str | None:
@@ -40,28 +41,54 @@ def _node_id(cls: type) -> str | None:
     return _executing_node_id(cls, quiet=False)
 
 
-def _push(event: str, data: dict) -> None:
-    """Tell the browser a batch is waiting. Never raises.
+def _push(node_id: str) -> None:
+    """Tell the browser the tray changed. Never raises.
 
     `send_sync` defers through `call_soon_threadsafe`, so calling it from the
-    executor's own thread is safe. Outside a running server there is nobody to
+    executor's thread is safe. Outside a running server there is nobody to
     tell, which is not an error.
     """
+    tray = review.get(node_id)
+    data = {"node_id": node_id, "count": tray.count if tray else 0}
     try:
         from server import PromptServer
 
-        PromptServer.instance.send_sync(event, data)
+        PromptServer.instance.send_sync("pw_color.review", data)
     except Exception:  # pragma: no cover - no server in tests
-        _log.debug("PW Color: could not push %s", event, exc_info=True)
+        _log.debug("PW Color: could not push the tray state", exc_info=True)
 
 
-def _check_interrupt() -> None:
-    """Raise if the user pressed Cancel. Silent outside ComfyUI."""
-    try:
-        from comfy.model_management import throw_exception_if_processing_interrupted
-    except Exception:  # pragma: no cover - outside ComfyUI
-        return
-    throw_exception_if_processing_interrupted()
+def _blocked() -> io.NodeOutput:
+    """Stop everything downstream of this node for this run, silently.
+
+    The blocker travels as the output *value* rather than through NodeOutput's
+    `block_execution` argument, and it has to: `block_execution=None` reads as
+    "do not block", and an output carrying no args never reaches the code that
+    would apply it.
+    """
+    from comfy_execution.graph_utils import ExecutionBlocker
+
+    return io.NodeOutput(ExecutionBlocker(None))
+
+
+def _as_batch(frames: list[torch.Tensor]) -> torch.Tensor:
+    """One batch from the keepers, the best-rated frame setting the size.
+
+    Frames from different runs can differ in size if the resolution changed
+    between them. Core's Image Batch meets that by resizing the second input
+    to the first; this does the same, with the first being the best keeper.
+    """
+    first = frames[0]
+    h, w = first.shape[0], first.shape[1]
+    matched = []
+    for f in frames:
+        if f.shape[0] != h or f.shape[1] != w:
+            import comfy.utils
+
+            f = comfy.utils.common_upscale(f.unsqueeze(0).movedim(-1, 1), w, h, "bilinear", "center")
+            f = f.movedim(1, -1)[0]
+        matched.append(f)
+    return torch.stack(matched)
 
 
 class PW_Review(io.ComfyNode):
@@ -71,19 +98,19 @@ class PW_Review(io.ComfyNode):
             node_id="PW_Review",
             display_name="PW Review",
             category="PW Color",
-            search_aliases=["review", "rate", "stars", "gate", "pick", "cull", "approve", "hold"],
+            search_aliases=["review", "rate", "stars", "tray", "pick", "cull", "approve", "keep"],
             description=(
-                "Holds the batch here and waits. Rate each image one to five stars, then release: "
-                "the rated ones carry on, best first, and the unrated are dropped. Turn on auto_pass "
-                "to let runs through untouched. The batch stays in memory while it waits, and the "
-                "run keeps its place in the queue."
+                "Collects each run's images in a tray and lets the run finish. Rate them one to five "
+                "stars when you are ready, then release: the next run sends the rated ones on, best "
+                "first, and skips generation. Unrated images are dropped. auto_pass sends images "
+                "straight through instead, and takes effect at once, even for runs already queued."
             ),
             inputs=[
-                io.Image.Input("image"),
+                io.Image.Input("image", lazy=True),
                 io.Boolean.Input(
                     "auto_pass",
                     default=False,
-                    tooltip="Send every image straight through without stopping. For unattended runs.",
+                    tooltip="Send every image straight through instead of collecting it. Takes effect at once.",
                 ),
             ],
             outputs=[io.Image.Output(display_name="image")],
@@ -92,47 +119,43 @@ class PW_Review(io.ComfyNode):
 
     @classmethod
     def fingerprint_inputs(cls, **kwargs) -> float:
-        # Never equal to itself, so a re-queued prompt stops at the gate again
-        # instead of being handed the batch it was given last time.
+        # Never equal to itself, so every run reaches the node: a run that was
+        # served from the cache could neither collect nor deliver.
         return float("nan")
 
     @classmethod
-    async def execute(cls, image: torch.Tensor, auto_pass: bool = False) -> io.NodeOutput:
-        if auto_pass:
-            return io.NodeOutput(image)
+    def check_lazy_status(cls, image=None, auto_pass: bool = False) -> list[str]:
+        """Ask for a new image unless this run is the one delivering keepers."""
+        node_id = _node_id(cls)
+        if node_id is not None and review.release_pending(node_id):
+            return []
+        return ["image"] if image is None else []
 
+    @classmethod
+    def execute(cls, image: torch.Tensor | None = None, auto_pass: bool = False) -> io.NodeOutput:
         node_id = _node_id(cls)
         if node_id is None:
-            # No panel could ever address this hold, so waiting would be
-            # waiting for ever. Passing through is the failure that costs the
-            # least, and the warning says why the gate did nothing.
-            _log.warning("PW Color: PW Review has no node id, so it cannot hold; passing the batch through")
+            # No panel could ever address this tray, so collecting would be
+            # collecting for nobody. Passing through costs the least.
+            _log.warning("PW Color: PW Review has no node id, so it cannot collect; passing the image through")
+            return io.NodeOutput(image) if image is not None else _blocked()
+
+        kept = review.take_release(node_id)
+        if kept:
+            _push(node_id)
+            return io.NodeOutput(_as_batch(kept))
+
+        if image is None:
+            # The check saw a release waiting and asked for no image, and the
+            # release was cleared before this ran. Nothing to send.
+            return _blocked()
+
+        if review.auto_pass(node_id, auto_pass):
             return io.NodeOutput(image)
 
-        hold = open_hold(node_id, image)
-        try:
-            _push("pw_color.review", {"node_id": node_id, "count": hold.count})
-            while not hold.released.is_set():
-                _check_interrupt()
-                await asyncio.sleep(POLL_SECONDS)
-            keep = kept_order(hold.ratings)
-            if not keep:
-                from comfy_execution.graph_utils import ExecutionBlocker
-
-                # Rejecting every frame is a decision, not an error, so this
-                # blocks silently and the panel is what says nothing was kept.
-                #
-                # The blocker travels as the output *value* rather than through
-                # NodeOutput's `block_execution` argument, and it has to:
-                # `block_execution=None` reads as "do not block", and an output
-                # carrying no args never reaches the code that would apply it.
-                return io.NodeOutput(ExecutionBlocker(None))
-            return io.NodeOutput(image[keep])
-        finally:
-            # An interrupt, a failure upstream, or a browser that never answers
-            # must not leave a hold for the next run to inherit.
-            close(node_id)
-            _push("pw_color.review", {"node_id": node_id, "count": 0})
+        review.add(node_id, image)
+        _push(node_id)
+        return _blocked()
 
 
 NODES = [PW_Review]

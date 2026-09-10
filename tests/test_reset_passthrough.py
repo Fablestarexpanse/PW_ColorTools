@@ -140,17 +140,18 @@ def test_reset_stops_the_review_gate_gating():
     """A gate's pass-through state is not gating at all.
 
     It earns its own test rather than joining the parametrised ones because
-    its execute is a coroutine: it is the one node in the pack that waits, and
-    reset is what makes it stop.
+    its default collects the image instead of passing it, so the default is
+    not the pass-through state and reset has to say so.
     """
-    import asyncio
+    from pw_color import review as tray
 
+    tray._reset()
     node = NODES["PW_Review"]
     node.hidden = _Hidden()
     img = _image()
     kwargs = _reset_kwargs("PW_Review", node)
     assert kwargs["auto_pass"] is True, "reset must switch the gate off, not merely restore its default"
-    out = asyncio.run(node.execute(image=img, **kwargs)).result[0]
+    out = node.execute(image=img, **kwargs).result[0]
     assert torch.equal(out, img)
 
 

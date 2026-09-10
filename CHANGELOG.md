@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.3.0
+
+### Changed
+
+- **PW Review collects instead of stopping.** It used to halt the run and wait
+  at the node, one run at a time. With Run set to four, that meant rating one
+  image at a time while the other runs sat queued behind it, and several runs
+  appearing to pile up without generating. Now each run drops its images into
+  the node's tray and finishes, so the queue keeps generating while the tray
+  fills. Rate them when you are ready, then **release**: the keepers go out as
+  one batch, best first, on a single run that PW Review queues at the front
+  and aims only at the nodes after it, so the sampler does not run again. A
+  new **clear** button empties the tray.
+
+### Fixed
+
+- **auto_pass did nothing to runs already in the queue.** ComfyUI copies every
+  widget into a run when it is queued, so turning auto_pass on still left the
+  queued runs holding for a rating, and turning it off still let them through.
+  The switch now reaches the server the moment it changes and wins over the
+  value the run was queued with.
+
 ## 2.2.0
 
 ### Added
