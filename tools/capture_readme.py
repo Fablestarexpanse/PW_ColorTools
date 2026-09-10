@@ -8,17 +8,25 @@ element in Modern Node Design at 2x. Writes into docs/images.
 
     pip install playwright   # any Python; Chrome must be installed
     python main.py --cpu --port 8199 --disable-auto-launch    # in ComfyUI
-    python tools/capture_readme.py
+    python tools/capture_readme.py [--review-folder DIR]
+
+PW Review only looks like anything while it holds a batch, so its main photo
+needs real images: pass --review-folder with a folder of generated frames
+(the README's shot is 25 Krea-2 images from one prompt). That capture uses
+LoadImagesFromFolderKJ, so it needs KJNodes installed. Without the flag the
+existing pw_review.png is left alone rather than replaced by something staged.
+The wiring photo, pw_review_wired.png, needs no images and is always taken.
 """
 
+import argparse
 import json
+import os
 import time
 import urllib.request
 
 from playwright.sync_api import sync_playwright
 
 BASE = "http://127.0.0.1:8199"
-import os
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "images")
 NODES = {
     "PW_Look": "pw_look.png",
@@ -37,6 +45,10 @@ def queue_idle():
         d = json.load(r)
     return not d["queue_running"] and not d["queue_pending"]
 
+
+ARGS = argparse.ArgumentParser(description="Recapture the README screenshots.")
+ARGS.add_argument("--review-folder", default="", help="folder of generated images for the PW Review shot")
+REVIEW_FOLDER = ARGS.parse_args().review_folder
 
 with sync_playwright() as p:
     browser = p.chromium.launch(channel="chrome", headless=True)
@@ -133,48 +145,20 @@ with sync_playwright() as p:
         el.screenshot(path=f"{OUT}/{filename}")
         print(node_type, info, "->", filename)
 
-    # PW Review only looks like anything while it is holding, so this one is
-    # staged rather than taken from the template: four grades of one frame is
-    # the situation the node is for, and it is also the only way to get four
-    # visibly different images without a model.
-    review_id = page.evaluate(
-        """(presets) => {
-        const app = window.app;
-        app.graph.clear();
-        const mk = (type, pos) => { const n = window.LiteGraph.createNode(type); n.pos = pos; app.graph.add(n); return n; };
-        const setw = (n, name, v) => { const w = n.widgets.find(w => w.name === name); if (w) { w.value = v; w.callback?.(v); } };
-        const load = mk('LoadImage', [20, 60]);
-        setw(load, 'image', 'example.png');
-        const looks = presets.map((preset, i) => {
-            const look = mk('PW_Look', [340, 60 + i * 40]);
-            setw(look, 'preset', preset);
-            load.connect(0, look, 0);
-            return look;
-        });
-        let batch = looks[0];
-        for (let i = 1; i < looks.length; i++) {
-            const b = mk('ImageBatch', [820, 60 + i * 60]);
-            batch.connect(0, b, 0);
-            looks[i].connect(0, b, 1);
-            batch = b;
-        }
-        const review = mk('PW_Review', [1180, 60]);
-        const preview = mk('PreviewImage', [1700, 60]);
-        batch.connect(0, review, 0);
-        review.connect(0, preview, 0);
-        app.canvas.setDirty(true, true);
-        return String(review.id);
-    }""",
-        ["warm-portrait", "cool-cinematic", "golden-hour", "bleach-bypass"],
-    )
-    page.wait_for_timeout(1500)
-    page.evaluate("() => window.app.queuePrompt(0, 1)")
-    for _ in range(120):
-        time.sleep(1)
-        with urllib.request.urlopen(f"{BASE}/api/pw_color/review/{review_id}", timeout=5) as r:
-            if json.load(r)["holding"]:
-                break
-    page.wait_for_timeout(3000)
+    # A brand-new, empty workflow whose node ids start at 5001.
+    #
+    # graph.clear() is not enough. It restarts ids at 1, and the host keeps
+    # per-id state from whatever workflow was open - cached outputs, source
+    # badges, error markers, node sizes - so a new node silently inherits the
+    # look of the old node that had its number. That is how PW Review came out
+    # 3500px tall with the template's palette drawn into it, and how VAE Decode
+    # wore a PW_ColorTools badge. Ids nothing has used cannot inherit anything.
+    fresh = """async (name) => {
+        await window.app.loadGraphData(
+            { last_node_id: 5000, last_link_id: 5000, nodes: [], links: [], groups: [], config: {}, extra: {}, version: 0.4 },
+            true, false, name);
+        await new Promise(r => setTimeout(r, 1200));
+    }"""
 
     click_panel = """([id, lx, ly]) => {
         const n = window.app.graph.getNodeById(id);
@@ -185,34 +169,120 @@ with sync_playwright() as p:
                 clientX: r.x + lx * s, clientY: r.y + ly * s, pointerId: 1, pointerType: 'mouse',
                 button: 0, buttons: 1, isPrimary: true }));
     }"""
-    # The star row sits under each 76px thumbnail, 16px per star, below a
-    # header, the focus view and a section gap.
-    star_y = 18 + 6 + 220 + 20 + 76 + 8
-    for x in (16 * 3.5, 96 + 8 + 16 * 1.5, 2 * (96 + 8) + 16 * 4.5):
-        page.evaluate(click_panel, [review_id, x, star_y])
-        page.wait_for_timeout(200)
-    page.evaluate(click_panel, [review_id, 2 * (96 + 8) + 48, 300])  # focus the five-star frame
-    page.wait_for_timeout(900)
-    page.evaluate(
-        """(id) => { const app = window.app; const n = app.graph.getNodeById(id);
-            app.canvas.setZoom ? app.canvas.setZoom(1, [0, 0]) : (app.canvas.ds.scale = 1);
-            app.canvas.ds.offset[0] = -(n.pos[0]) + 300; app.canvas.ds.offset[1] = -(n.pos[1]) + 160;
-            app.canvas.setDirty(true, true); }""",
-        review_id,
+
+    if REVIEW_FOLDER:
+        # A real batch, held and rated across the grid. Widened to five across
+        # so 25 frames is five rows rather than nine.
+        page.evaluate(fresh, "capture-review")
+        review_id = page.evaluate(
+            """(folder) => {
+            const app = window.app;
+            const mk = (type, pos) => { const n = window.LiteGraph.createNode(type); n.pos = pos; app.graph.add(n); return n; };
+            const setw = (n, name, v) => { const w = n.widgets.find(w => w.name === name); if (w) { w.value = v; w.callback?.(v); } };
+            const load = mk('LoadImagesFromFolderKJ', [20, 60]);
+            setw(load, 'folder', folder); setw(load, 'width', -1); setw(load, 'height', -1);
+            const review = mk('PW_Review', [600, 60]);
+            review.size[0] = 560;
+            const preview = mk('PreviewImage', [1300, 60]);
+            load.connect(0, review, 0); review.connect(0, preview, 0);
+            app.canvas.setDirty(true, true);
+            return String(review.id);
+        }""",
+            REVIEW_FOLDER,
+        )
+        page.wait_for_timeout(1500)
+        page.evaluate("() => window.app.queuePrompt(0, 1)")
+        for _ in range(180):
+            time.sleep(1)
+            with urllib.request.urlopen(f"{BASE}/api/pw_color/review/{review_id}", timeout=5) as r:
+                if json.load(r)["holding"]:
+                    break
+        page.wait_for_timeout(9000)
+        cols = page.evaluate(
+            """(id) => { const n = window.app.graph.getNodeById(id);
+                const cv = n.widgets.find(w => w.name === 'pw_panel').element.querySelector('canvas');
+                return Math.max(1, Math.floor((cv.offsetWidth + 8) / (96 + 8))); }""",
+            review_id,
+        )
+        ratings = [5, 0, 3, 4, 0, 2, 5, 0, 4, 1, 0, 3, 5, 2, 0, 4, 3, 0, 1, 5, 0, 2, 4, 0, 3]
+        # Star rows sit under each 76px thumbnail, 16px per star, below the
+        # header, the focus view and a section gap.
+        strip_top = 18 + 6 + 220 + 20
+        for i, stars in enumerate(ratings):
+            if stars:
+                x = (i % cols) * (96 + 8) + (stars - 0.5) * 16
+                y = strip_top + (i // cols) * (92 + 8) + 76 + 8
+                page.evaluate(click_panel, [review_id, x, y])
+                page.wait_for_timeout(80)
+        page.evaluate(click_panel, [review_id, 48, strip_top + 30])  # focus a five-star frame
+        page.wait_for_timeout(1200)
+        # Clear of the canvas toolbar, which otherwise draws over the title.
+        page.evaluate(
+            """(id) => { const app = window.app; const n = app.graph.getNodeById(id);
+                app.canvas.setZoom ? app.canvas.setZoom(1, [0, 0]) : (app.canvas.ds.scale = 1);
+                app.canvas.ds.offset[0] = -(n.pos[0]) + 300; app.canvas.ds.offset[1] = -(n.pos[1]) + 220;
+                app.canvas.setDirty(true, true); }""",
+            review_id,
+        )
+        page.wait_for_timeout(1500)
+        page.locator(f'[data-node-id="{review_id}"]').first.screenshot(path=f"{OUT}/pw_review.png")
+        print("pw_review.png")
+        urllib.request.urlopen(
+            urllib.request.Request(
+                f"{BASE}/api/pw_color/review/{review_id}/release",
+                data=json.dumps({"ratings": ratings}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            ),
+            timeout=10,
+        )
+        page.wait_for_timeout(2500)
+    else:
+        print("pw_review.png left as it is (pass --review-folder to retake it)")
+
+    # Where PW Review goes: the tail of a generation graph and nothing else,
+    # laid out from the widths the renderer actually drew. Under Modern Node
+    # Design node.size disagrees with the DOM, and placing by it stacks nodes.
+    page.evaluate(fresh, "capture-wired")
+    tail_ids = page.evaluate(
+        """async () => {
+        const app = window.app, g = app.graph;
+        const mk = (type) => { const n = window.LiteGraph.createNode(type); g.add(n); return n; };
+        const setw = (n, name, v) => { const w = n.widgets?.find(w => w.name === name); if (w) { w.value = v; w.callback?.(v); } };
+        const ks = mk('KSampler');
+        setw(ks, 'steps', 11); setw(ks, 'cfg', 1); setw(ks, 'sampler_name', 'euler'); setw(ks, 'scheduler', 'simple');
+        const dec = mk('VAEDecode'), review = mk('PW_Review'), save = mk('SaveImage');
+        setw(save, 'filename_prefix', 'keepers');
+        ks.connect(0, dec, 0); dec.connect(0, review, 0); review.connect(0, save, 0);
+        app.canvas.setZoom ? app.canvas.setZoom(1, [0, 0]) : (app.canvas.ds.scale = 1);
+        app.canvas.ds.offset[0] = 120; app.canvas.ds.offset[1] = 220;
+        const order = [ks, dec, review, save];
+        order.forEach((n, i) => { n.pos = [i * 1000, 0]; });
+        app.canvas.setDirty(true, true);
+        await new Promise(r => setTimeout(r, 1500));
+        const width = (n) => { const el = document.querySelector(`[data-node-id="${n.id}"]`);
+            return el ? el.getBoundingClientRect().width / app.canvas.ds.scale : n.size[0]; };
+        let x = 0;
+        for (const n of order) { n.pos = [x, 0]; x += width(n) + 90; }
+        // Links can be hidden in the user settings (Comfy.LinkRenderMode -1).
+        // Assigning the canvas property turns them on for this page only;
+        // setting.set() would write to the shared user settings file.
+        app.canvas.links_render_mode = window.LiteGraph.SPLINE_LINK ?? 2;
+        app.canvas.setDirty(true, true);
+        await new Promise(r => setTimeout(r, 2000));
+        return order.map(n => String(n.id));
+    }"""
     )
-    page.wait_for_timeout(1200)
-    page.locator(f'[data-node-id="{review_id}"]').first.screenshot(path=f"{OUT}/pw_review.png")
-    print("pw_review.png")
-    # Let the run finish rather than leaving a held prompt behind.
-    urllib.request.urlopen(
-        urllib.request.Request(
-            f"{BASE}/api/pw_color/review/{review_id}/release",
-            data=json.dumps({"ratings": [4, 2, 5, 0]}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        ),
-        timeout=5,
-    )
+    page.wait_for_timeout(1500)
+    boxes = [page.locator(f'[data-node-id="{i}"]').first.bounding_box() for i in tail_ids]
+    boxes = [bx for bx in boxes if bx]
+    pad = 24
+    x0 = min(bx["x"] for bx in boxes) - pad
+    y0 = min(bx["y"] for bx in boxes) - pad
+    x1 = max(bx["x"] + bx["width"] for bx in boxes) + pad
+    y1 = max(bx["y"] + bx["height"] for bx in boxes) + pad
+    page.screenshot(path=f"{OUT}/pw_review_wired.png", clip={"x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0})
+    print("pw_review_wired.png")
 
     # The whole example workflow, fitted. Reloaded, because the staged graph
     # above cleared it.
