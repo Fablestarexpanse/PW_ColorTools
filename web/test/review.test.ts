@@ -67,3 +67,38 @@ describe('keptCount', () => {
     assert.equal(keptCount([]), 0);
   });
 });
+
+import { VIEW_MAX, VIEW_MIN, clampView, rerunHit, viewHeight } from '../src/core/stars.ts';
+
+describe('rerunHit', () => {
+  it('is the slot to the right of the fifth star', () => {
+    assert.equal(rerunHit(STAR * 5 + 4, 72, CELLS, STAR), 0);
+    assert.equal(rerunHit(110 + STAR * 5 + 4, 72, CELLS, STAR), 1);
+  });
+
+  it('is never a star, and never the thumbnail above', () => {
+    assert.equal(rerunHit(STAR * 4.5, 72, CELLS, STAR), null);
+    assert.equal(rerunHit(STAR * 5 + 4, 10, CELLS, STAR), null);
+  });
+
+  it('stays null in the gap between cells', () => {
+    assert.equal(rerunHit(105, 72, CELLS, STAR), null);
+  });
+});
+
+describe('viewHeight', () => {
+  it('is the handle height when the node has no spare room', () => {
+    assert.equal(viewHeight(300, 0), 300);
+    assert.equal(viewHeight(300, -50), 300, 'a short node does not squash the view; the node grows instead');
+  });
+
+  it('takes the spare room of a node dragged taller', () => {
+    assert.equal(viewHeight(300, 120), 420);
+  });
+
+  it('is clamped to a usable range', () => {
+    assert.equal(clampView(10), VIEW_MIN);
+    assert.equal(clampView(99999), VIEW_MAX);
+    assert.equal(viewHeight(VIEW_MAX, 500), VIEW_MAX);
+  });
+});

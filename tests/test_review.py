@@ -163,3 +163,132 @@ def test_the_epoch_moves_whenever_frames_leave_so_the_panel_forgets_its_indices(
     review.add("4", torch.rand(1, 8, 8, 3))
     review.request_release("4", [0])
     assert review.epoch("4") == start + 3, "rejecting everything empties the tray"
+
+
+class TestSendEverything:
+    def test_rated_leave_best_first_then_the_unrated_in_arrival_order(self):
+        frames = _frames(4)
+        review.add("4", frames)
+        assert review.request_release("4", [0, 2, 0, 5], everything=True) == 4
+        kept = review.take_release("4")
+        order = [float(k[0, 0, 0]) for k in kept]
+        assert order == [float(frames[i, 0, 0, 0]) for i in (3, 1, 0, 2)]
+
+    def test_everything_from_an_unrated_tray_is_the_tray_as_it_arrived(self):
+        review.add("4", _frames(3))
+        assert review.request_release("4", [0, 0, 0], everything=True) == 3
+
+
+def _prompt(seed=7, value=11):
+    """A trimmed API prompt: a primitive seed feeding a sampler and a prompt node."""
+    return {
+        "14": {"class_type": "PrimitiveInt", "inputs": {"value": value}},
+        "16": {"class_type": "KSampler", "inputs": {"seed": ["14", 0], "steps": 8, "cfg": 1.0}},
+        "11": {"class_type": "Prompt (LoraManager)", "inputs": {"seed": ["14", 0], "text": "a wolf"}},
+        "30": {"class_type": "KSamplerAdvanced", "inputs": {"noise_seed": seed, "steps": 20}},
+        "83": {"class_type": "PW_Review", "inputs": {"image": ["17", 0], "auto_pass": False}, "_meta": {"title": "PW Review"}},
+    }
+
+
+class _Rng:
+    def __init__(self):
+        self.n = 1000
+
+    def randrange(self, stop):
+        self.n += 1
+        return self.n
+
+
+class TestReroll:
+    def test_literal_seeds_and_the_primitive_feeding_a_seed_are_rerolled(self):
+        out = review.reroll_seeds(_prompt(), _Rng())
+        assert out["30"]["inputs"]["noise_seed"] != 7
+        assert out["14"]["inputs"]["value"] != 11
+
+    def test_a_shared_seed_source_is_rolled_once_so_its_consumers_agree(self):
+        out = review.reroll_seeds(_prompt(), _Rng())
+        assert out["16"]["inputs"]["seed"] == ["14", 0] and out["11"]["inputs"]["seed"] == ["14", 0]
+        rolled = [out["14"]["inputs"]["value"], out["30"]["inputs"]["noise_seed"]]
+        assert len(set(rolled)) == 2 and all(v > 1000 for v in rolled)
+
+    def test_everything_else_is_left_exactly_as_it_was(self):
+        before = _prompt()
+        out = review.reroll_seeds(before, _Rng())
+        assert out["16"]["inputs"]["steps"] == 8 and out["11"]["inputs"]["text"] == "a wolf"
+        assert before["14"]["inputs"]["value"] == 11, "the stored prompt is not modified"
+
+    def test_a_non_integer_seed_is_not_touched(self):
+        p = {"1": {"class_type": "X", "inputs": {"seed": "abc"}}}
+        assert review.reroll_seeds(p, _Rng())["1"]["inputs"]["seed"] == "abc"
+
+
+class TestRerun:
+    def test_each_frame_keeps_the_prompt_that_made_it(self):
+        review.add("4", _frames(2), prompt=_prompt(), workflow={"nodes": []})
+        review.add("4", _frames(1))
+        tray = review.get("4")
+        assert tray.prompts[0] is not None and tray.prompts[1] is tray.prompts[0]
+        assert tray.prompts[2] is None
+
+    def test_rerun_hands_back_a_rerolled_prompt_marked_with_its_origin(self):
+        review.add("4", _frames(2), prompt=_prompt(), workflow={"nodes": [1]})
+        job = review.rerun_job("4", 1, "83", _Rng())
+        assert job["workflow"] == {"nodes": [1]}
+        assert job["prompt"]["14"]["inputs"]["value"] != 11
+        origin = job["prompt"]["83"]["_meta"][review.RERUN_KEY]
+        assert origin == review.get("4").uids[1]
+
+    def test_a_frame_without_a_prompt_cannot_be_rerun(self):
+        review.add("4", _frames(1))
+        assert review.rerun_job("4", 0, "83", _Rng()) is None
+        assert review.rerun_job("4", 5, "83", _Rng()) is None
+        assert review.rerun_job("9", 0, "83", _Rng()) is None
+
+    def test_the_rerun_lands_right_after_its_origin_and_after_earlier_reruns_of_it(self):
+        review.add("4", _frames(3), prompt=_prompt())
+        uid = review.get("4").uids[0]
+        review.add("4", _frames(1, 0.5), prompt=_prompt(), rerun_of=uid)
+        review.add("4", _frames(1, 0.7), prompt=_prompt(), rerun_of=uid)
+        tray = review.get("4")
+        assert tray.count == 5
+        assert [round(float(f[0, 0, 0]), 2) for f in tray.images] == [0.0, 0.5, 0.7, 0.1, 0.2]
+        assert tray.reruns == [False, True, True, False, False]
+
+    def test_ratings_move_with_their_frames_when_a_rerun_is_inserted(self):
+        review.add("4", _frames(3), prompt=_prompt())
+        review.set_ratings("4", [1, 2, 3])
+        review.add("4", _frames(1, 0.5), rerun_of=review.get("4").uids[0])
+        assert review.get("4").ratings == [1, 0, 2, 3]
+
+    def test_an_insertion_moves_the_epoch_and_an_append_does_not(self):
+        review.add("4", _frames(2), prompt=_prompt())
+        start = review.epoch("4")
+        review.add("4", _frames(1))
+        assert review.epoch("4") == start
+        review.add("4", _frames(1), rerun_of=review.get("4").uids[0])
+        assert review.epoch("4") == start + 1
+
+    def test_a_rerun_whose_origin_has_gone_is_appended(self):
+        review.add("4", _frames(1), prompt=_prompt())
+        review.add("4", _frames(1, 0.5), rerun_of=987654)
+        assert review.get("4").count == 2 and review.get("4").reruns == [False, True]
+
+    def test_while_a_release_is_waiting_reruns_are_appended_not_inserted(self):
+        review.add("4", _frames(2), prompt=_prompt())
+        review.request_release("4", [5, 0])
+        review.add("4", _frames(1, 0.5), rerun_of=review.get("4").uids[0])
+        kept = review.take_release("4")
+        assert len(kept) == 1 and review.get("4").count == 1
+
+
+def test_a_rerun_job_is_valid_json_even_after_the_executor_marked_the_prompt():
+    """The executor writes is_changed into the prompt it ran, NaN for PW Review,
+    and a NaN made the browser reject the job outright."""
+    import json
+
+    prompt = _prompt()
+    review.add("4", _frames(1), prompt=prompt)
+    prompt["83"]["is_changed"] = [float("nan")]
+    job = review.rerun_job("4", 0, "83", _Rng())
+    json.dumps(job, allow_nan=False)
+    assert "is_changed" not in job["prompt"]["83"]

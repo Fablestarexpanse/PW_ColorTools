@@ -38,6 +38,8 @@ def _state(node_id: str) -> dict:
         "ratings": list(tray.ratings) if tray else [],
         "pending": len(tray.release) if tray and tray.release else 0,
         "epoch": review.epoch(node_id),
+        "reruns": tray.reruns if tray else [],
+        "rerunnable": [p is not None for p in tray.prompts] if tray else [],
     }
 
 
@@ -101,8 +103,33 @@ def _release_handler(web: Any) -> Handler:
         node_id = request.match_info["node_id"]
         if review.get(node_id) is None:
             return web.Response(status=404, text="the tray is empty")
-        kept = review.request_release(node_id, ratings)
+        try:
+            everything = (await request.json()).get("everything", False) is True
+        except Exception:
+            everything = False
+        kept = review.request_release(node_id, ratings, everything=everything)
         return web.json_response({"kept": kept}, headers=_NO_STORE)
+
+    return handler
+
+
+def _rerun_handler(web: Any) -> Handler:
+    """The prompt that made one frame, with new seeds, for the browser to queue.
+
+    The browser queues it rather than this server, so the run belongs to the
+    person's own session: its progress shows in their UI like any other.
+    """
+
+    async def handler(request: Any) -> Any:
+        node_id = request.match_info["node_id"]
+        try:
+            index = int(request.match_info["index"])
+        except (TypeError, ValueError):
+            return web.Response(status=400, text="index must be a number")
+        job = review.rerun_job(node_id, index, node_id)
+        if job is None:
+            return web.Response(status=404, text="that frame is gone, or its run left no prompt to re-run")
+        return web.json_response(job, headers=_NO_STORE)
 
     return handler
 
@@ -144,6 +171,7 @@ def _routing_table(web: Any) -> list[tuple[str, str, Handler]]:
         ("/pw_color/review/{node_id}/image/{index}", "GET", _image_handler(web, "views")),
         ("/pw_color/review/{node_id}/ratings", "POST", _ratings_handler(web)),
         ("/pw_color/review/{node_id}/release", "POST", _release_handler(web)),
+        ("/pw_color/review/{node_id}/rerun/{index}", "POST", _rerun_handler(web)),
         ("/pw_color/review/{node_id}/clear", "POST", _clear_handler(web)),
         ("/pw_color/review/{node_id}/mode", "POST", _mode_handler(web)),
     ]

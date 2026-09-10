@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.4.0
+
+### Added
+
+- **Re-run a frame from PW Review.** An R after each frame's stars queues the
+  prompt that made it again, at the front of the queue, with every seed drawn
+  afresh and everything else unchanged. The new image lands in the tray right
+  after the frame it re-ran, marked R. The node now keeps each run's prompt and
+  workflow alongside its images for this.
+- **rate all 5** and **send all** in PW Review's new toolbar. send all sends
+  the whole tray, rated frames first by rating, then the unrated in the order
+  they arrived.
+- **A resizable preview in PW Review.** A grip under the focus view drags it
+  taller or shorter, and the height is saved with the workflow. Making the
+  node itself taller now gives the room to the view, where before it only
+  added empty space under the thumbnails.
+
 ## 2.3.0
 
 ### Changed

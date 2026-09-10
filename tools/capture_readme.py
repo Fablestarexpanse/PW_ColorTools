@@ -198,16 +198,20 @@ with sync_playwright() as p:
                 if json.load(r)["count"]:
                     break
         page.wait_for_timeout(9000)
-        cols = page.evaluate(
+        cols, panel_h = page.evaluate(
             """(id) => { const n = window.app.graph.getNodeById(id);
                 const cv = n.widgets.find(w => w.name === 'pw_panel').element.querySelector('canvas');
-                return Math.max(1, Math.floor((cv.offsetWidth + 8) / (96 + 8))); }""",
+                return [Math.max(1, Math.floor((cv.offsetWidth + 8) / (96 + 8))), cv.offsetHeight]; }""",
             review_id,
         )
         ratings = [5, 0, 3, 4, 0, 2, 5, 0, 4, 1, 0, 3, 5, 2, 0, 4, 3, 0, 1, 5, 0, 2, 4, 0, 3]
         # Star rows sit under each 76px thumbnail, 16px per star, below the
-        # header, the focus view and a section gap.
-        strip_top = 18 + 6 + 220 + 20
+        # header, the toolbar, the focus view and its grip. The view takes
+        # whatever height the rest leaves, so it is measured, not assumed.
+        rows = -(-len(ratings) // cols)
+        strip_h = rows * 92 + (rows - 1) * 8
+        view_h = panel_h - (18 + 4 + 20 + 6 + 12 + strip_h + 12)
+        strip_top = 18 + 4 + 20 + 6 + view_h + 12
         for i, stars in enumerate(ratings):
             if stars:
                 x = (i % cols) * (96 + 8) + (stars - 0.5) * 16

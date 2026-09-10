@@ -3105,36 +3105,74 @@ function nextRating(current, clicked) {
 function keptCount(ratings) {
   return ratings.filter((r) => r > 0).length;
 }
+function rerunHit(x, y, cells, starSize) {
+  for (let index = 0; index < cells.length; index++) {
+    const c = cells[index];
+    const top = c.y + c.h - starSize;
+    const left = c.x + STARS * starSize;
+    if (x >= left && x <= c.x + c.w && y >= top && y <= c.y + c.h) return index;
+  }
+  return null;
+}
+var VIEW_MIN = 120;
+var VIEW_MAX = 2400;
+function clampView(h) {
+  return Math.round(Math.min(VIEW_MAX, Math.max(VIEW_MIN, h)));
+}
+function viewHeight(base, spare) {
+  return clampView(base + Math.max(0, spare));
+}
 
 // src/nodes/review.ts
 var M6 = PW.metrics;
 var HEADER_H5 = 18;
-var VIEW_H = 220;
+var TOOLBAR_H = 20;
+var VIEW_DEFAULT = 220;
+var HANDLE_H = 12;
 var THUMB_H2 = 76;
 var STAR_H = 16;
 var CELL_H2 = THUMB_H2 + STAR_H;
 var CELL_W = 96;
 var CELL_GAP = 8;
 var MIN_WIDTH4 = 420;
+var VIEW_PROP = "pw_view_h";
 var uis3 = /* @__PURE__ */ new WeakMap();
 function blank() {
   return {
     count: 0,
     ratings: [],
+    reruns: [],
+    rerunnable: [],
     pending: 0,
     epoch: -1,
     focus: 0,
     views: /* @__PURE__ */ new Map(),
     thumbs: /* @__PURE__ */ new Map(),
     note: "",
-    sentAutoPass: null
+    flash: "",
+    flashTimer: null,
+    sentAutoPass: null,
+    drag: null
   };
+}
+function baseView(node) {
+  const saved2 = Number(node.properties?.[VIEW_PROP]);
+  return Number.isFinite(saved2) && saved2 > 0 ? clampView(saved2) : VIEW_DEFAULT;
+}
+function setBaseView(node, h) {
+  const n = node;
+  n.properties ??= {};
+  n.properties[VIEW_PROP] = clampView(h);
 }
 function columns(width) {
   return Math.max(1, Math.floor((width + CELL_GAP) / (CELL_W + CELL_GAP)));
 }
 function rowCount(width, count) {
   return Math.max(1, Math.ceil(Math.max(1, count) / columns(width)));
+}
+function stripHeight(w, count) {
+  const rows = rowCount(w, count);
+  return rows * CELL_H2 + (rows - 1) * CELL_GAP;
 }
 function gridCells(strip, count) {
   const cols = columns(strip.w);
@@ -3145,22 +3183,40 @@ function gridCells(strip, count) {
     h: CELL_H2
   }));
 }
-function layout4(w) {
+function fixedHeight(w, ui) {
+  return HEADER_H5 + 4 + TOOLBAR_H + 6 + HANDLE_H + stripHeight(w, ui.count) + M6.padding;
+}
+function panelHeight2(w, node, ui) {
+  return fixedHeight(w, ui) + baseView(node);
+}
+function layout4(w, h, node, ui) {
+  const viewH = viewHeight(baseView(node), h - panelHeight2(w, node, ui));
   let y = 0;
   const header = { x: 0, y, w, h: HEADER_H5 };
-  y += HEADER_H5 + 6;
-  const view = { x: 0, y, w, h: VIEW_H };
-  y += VIEW_H + M6.gapSection;
-  return { header, view, strip: { x: 0, y, w, h: 0 } };
+  y += HEADER_H5 + 4;
+  const toolbar = { x: 0, y, w, h: TOOLBAR_H };
+  y += TOOLBAR_H + 6;
+  const view = { x: 0, y, w, h: viewH };
+  y += viewH;
+  const handle = { x: 0, y, w, h: HANDLE_H };
+  y += HANDLE_H;
+  return { header, toolbar, view, handle, strip: { x: 0, y, w, h: 0 } };
 }
-function panelHeight2(w, ui) {
-  const rows = rowCount(w, ui.count);
-  return HEADER_H5 + 6 + VIEW_H + M6.gapSection + rows * CELL_H2 + (rows - 1) * CELL_GAP + M6.padding;
-}
-function chips(ctx, header) {
-  const release2 = headerChip(ctx, header, "release");
-  const clear = headerChip(ctx, { ...header, w: release2.x - header.x - 6 }, "clear");
-  return { release: release2, clear };
+function tools(ctx, bar) {
+  const release2 = headerChip(ctx, bar, "release");
+  const clear = headerChip(ctx, { ...bar, w: release2.x - bar.x - 6 }, "clear");
+  const measure = (s) => ctx ? (ctx.font = PW.font.body, ctx.measureText(s).width) : s.length * 6.2;
+  const chipAt = (x, label) => {
+    const r = { x, y: bar.y + (bar.h - 16) / 2, w: measure(label) + 14, h: 16 };
+    if (ctx) {
+      fillPanel(ctx, r, PW.color.chip, M6.radiusControl, PW.color.borderSoft);
+      text(ctx, label, r.x + r.w / 2, bar.y + bar.h / 2, { colour: PW.color.textMute, align: "center" });
+    }
+    return r;
+  };
+  const rateAll = chipAt(bar.x, "rate all 5");
+  const sendAll = chipAt(rateAll.x + rateAll.w + 6, "send all");
+  return { release: release2, clear, sendAll, rateAll };
 }
 function star(ctx, cx, cy, radius, filled) {
   ctx.beginPath();
@@ -3181,6 +3237,20 @@ function star(ctx, cx, cy, radius, filled) {
     ctx.lineWidth = PW.metrics.border;
     ctx.stroke();
   }
+}
+function letter(ctx, x, y, size, label, strong) {
+  const r = { x, y, w: size, h: size };
+  fillPanel(ctx, r, strong ? PW.color.accent : PW.color.chip, M6.radiusControl, PW.color.borderSoft);
+  text(ctx, label, x + size / 2, y + size / 2, { colour: strong ? PW.color.well : PW.color.textMute, align: "center" });
+}
+function flash(node, ui, message) {
+  ui.flash = message;
+  if (ui.flashTimer) clearTimeout(ui.flashTimer);
+  ui.flashTimer = setTimeout(() => {
+    ui.flash = "";
+    panelOf(node)?.invalidate();
+  }, 2500);
+  panelOf(node)?.invalidate();
 }
 async function loadFrame(node, ui, kind, index) {
   const into = kind === "image" ? ui.views : ui.thumbs;
@@ -3227,6 +3297,8 @@ async function syncState(node, ui) {
     const hadPending = ui.pending;
     ui.count = state.count ?? 0;
     ui.ratings = Array.isArray(state.ratings) ? state.ratings.slice() : [];
+    ui.reruns = Array.isArray(state.reruns) ? state.reruns.slice() : [];
+    ui.rerunnable = Array.isArray(state.rerunnable) ? state.rerunnable.slice() : [];
     ui.pending = state.pending ?? 0;
     if (hadPending && !ui.pending && ui.note.startsWith("sending")) ui.note = `sent ${hadPending}`;
     if (ui.focus >= ui.count) ui.focus = Math.max(0, ui.count - 1);
@@ -3258,10 +3330,10 @@ function deliveryTargets(node) {
     return [];
   }
 }
-async function release(node, ui) {
+async function release(node, ui, everything = false) {
   if (!ui.count || ui.pending) return;
   try {
-    const res = await postPw(`/pw_color/review/${node.id}/release`, { ratings: ui.ratings });
+    const res = await postPw(`/pw_color/review/${node.id}/release`, { ratings: ui.ratings, everything });
     if (!res.ok) {
       ui.note = "the tray was already empty";
     } else {
@@ -3280,6 +3352,20 @@ async function release(node, ui) {
   }
   await syncState(node, ui);
 }
+async function rerun(node, ui, index) {
+  try {
+    const res = await postPw(`/pw_color/review/${node.id}/rerun/${index}`, {});
+    if (!res.ok) {
+      flash(node, ui, "that frame cannot be re-run");
+      return;
+    }
+    const job = await res.json();
+    await api.queuePrompt(-1, { output: job.prompt, workflow: job.workflow });
+    flash(node, ui, `re-run of #${index + 1} queued`);
+  } catch {
+    flash(node, ui, "could not queue the re-run");
+  }
+}
 async function clearTray(node, ui) {
   try {
     await postPw(`/pw_color/review/${node.id}/clear`, {});
@@ -3292,6 +3378,68 @@ async function clearTray(node, ui) {
 function idleText(node, ui) {
   if (ui.note) return ui.note;
   return getWidget(node, "auto_pass")?.value ? "auto_pass is on: images go straight through." : "The tray is empty. Each run adds its images here.";
+}
+function setNodeHeight(node, h) {
+  node.size[1] = h;
+  node.setSize?.([node.size[0], h]);
+  node.setDirtyCanvas?.(true, true);
+}
+function draw(node, ui, ctx, rr) {
+  const L = layout4(rr.w, rr.h, node, ui);
+  const label = ui.flash ? `Review \u2014 ${ui.flash}` : ui.pending ? `Review \u2014 sending ${ui.pending}` : ui.count ? `Review \u2014 ${ui.count} in tray, ${keptCount(ui.ratings)} kept` : "Review";
+  sectionHeader(ctx, label, L.header);
+  if (ui.count && !ui.pending) tools(ctx, L.toolbar);
+  fillPanel(ctx, L.view, PW.color.well, M6.radiusPanel, PW.color.border);
+  const focus = ui.views.get(ui.focus);
+  if (focus) {
+    ctx.save();
+    fillPanel(ctx, L.view, PW.color.well, M6.radiusPanel);
+    ctx.clip();
+    const s = Math.min(L.view.w / focus.width, L.view.h / focus.height);
+    const w = focus.width * s;
+    const h = focus.height * s;
+    ctx.drawImage(focus, L.view.x + (L.view.w - w) / 2, L.view.y + (L.view.h - h) / 2, w, h);
+    ctx.restore();
+  } else {
+    text(ctx, ui.count ? "loading" : idleText(node, ui), L.view.x + L.view.w / 2, L.view.y + L.view.h / 2, {
+      colour: PW.color.textMute,
+      align: "center"
+    });
+  }
+  const gy = L.handle.y + L.handle.h / 2;
+  ctx.strokeStyle = ui.drag ? PW.color.accent : PW.color.textMute;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (const dy of [-2, 2]) {
+    ctx.moveTo(L.handle.w / 2 - 18, gy + dy);
+    ctx.lineTo(L.handle.w / 2 + 18, gy + dy);
+  }
+  ctx.stroke();
+  gridCells(L.strip, ui.count).forEach((c, i) => {
+    const cell = { x: c.x, y: c.y, w: c.w, h: THUMB_H2 };
+    fillPanel(ctx, cell, PW.color.well, M6.radiusControl);
+    const thumb = ui.thumbs.get(i);
+    if (thumb) {
+      ctx.save();
+      fillPanel(ctx, cell, PW.color.well, M6.radiusControl);
+      ctx.clip();
+      const s = Math.max(cell.w / thumb.width, THUMB_H2 / thumb.height);
+      const w = thumb.width * s;
+      const h = thumb.height * s;
+      ctx.drawImage(thumb, c.x + (cell.w - w) / 2, c.y + (THUMB_H2 - h) / 2, w, h);
+      ctx.restore();
+    }
+    const focused = i === ui.focus;
+    ctx.strokeStyle = focused ? PW.color.accent : PW.color.borderSoft;
+    ctx.lineWidth = focused ? 2 : 1;
+    ctx.strokeRect(c.x + 0.5, c.y + 0.5, cell.w - 1, THUMB_H2 - 1);
+    if (ui.reruns[i]) letter(ctx, c.x + 3, c.y + 3, 14, "R", true);
+    const rating = ui.ratings[i] ?? 0;
+    for (let s = 1; s <= STARS; s++) {
+      star(ctx, c.x + (s - 0.5) * STAR_H, c.y + THUMB_H2 + STAR_H / 2, STAR_H * 0.4, s <= rating);
+    }
+    if (ui.rerunnable[i]) letter(ctx, c.x + STARS * STAR_H + 1, c.y + THUMB_H2 + 1, STAR_H - 2, "R", false);
+  });
 }
 function registerReview() {
   app.registerExtension({
@@ -3313,74 +3461,49 @@ function registerReview() {
         uis3.set(this, ui);
         const panel = attachPanel(this, {
           minWidth: MIN_WIDTH4,
-          height: (w) => panelHeight2(w, ui),
+          height: (w) => panelHeight2(w, this, ui),
           onWidgetChange: () => reportAutoPass(this, ui),
-          draw: (ctx, rr) => {
-            const L = layout4(rr.w);
-            const label = ui.pending ? `Review \u2014 sending ${ui.pending}` : ui.count ? `Review \u2014 ${ui.count} in tray, ${keptCount(ui.ratings)} kept` : "Review";
-            sectionHeader(ctx, label, L.header);
-            if (ui.count && !ui.pending) chips(ctx, L.header);
-            fillPanel(ctx, L.view, PW.color.well, M6.radiusPanel, PW.color.border);
-            const focus = ui.views.get(ui.focus);
-            if (focus) {
-              ctx.save();
-              fillPanel(ctx, L.view, PW.color.well, M6.radiusPanel);
-              ctx.clip();
-              const s = Math.min(L.view.w / focus.width, L.view.h / focus.height);
-              const w = focus.width * s;
-              const h = focus.height * s;
-              ctx.drawImage(focus, L.view.x + (L.view.w - w) / 2, L.view.y + (L.view.h - h) / 2, w, h);
-              ctx.restore();
-            } else {
-              text(ctx, ui.count ? "loading" : idleText(this, ui), L.view.x + L.view.w / 2, L.view.y + L.view.h / 2, {
-                colour: PW.color.textMute,
-                align: "center"
-              });
-            }
-            gridCells(L.strip, ui.count).forEach((c, i) => {
-              const cell = { x: c.x, y: c.y, w: c.w, h: THUMB_H2 };
-              fillPanel(ctx, cell, PW.color.well, M6.radiusControl);
-              const thumb = ui.thumbs.get(i);
-              if (thumb) {
-                ctx.save();
-                fillPanel(ctx, cell, PW.color.well, M6.radiusControl);
-                ctx.clip();
-                const s = Math.max(cell.w / thumb.width, THUMB_H2 / thumb.height);
-                const w = thumb.width * s;
-                const h = thumb.height * s;
-                ctx.drawImage(thumb, c.x + (cell.w - w) / 2, c.y + (THUMB_H2 - h) / 2, w, h);
-                ctx.restore();
-              }
-              const focused = i === ui.focus;
-              ctx.strokeStyle = focused ? PW.color.accent : PW.color.borderSoft;
-              ctx.lineWidth = focused ? 2 : 1;
-              ctx.strokeRect(c.x + 0.5, c.y + 0.5, cell.w - 1, THUMB_H2 - 1);
-              const rating = ui.ratings[i] ?? 0;
-              for (let s = 1; s <= STARS; s++) {
-                star(ctx, c.x + (s - 0.5) * STAR_H, c.y + THUMB_H2 + STAR_H / 2, STAR_H * 0.4, s <= rating);
-              }
-            });
-          },
+          draw: (ctx, rr) => draw(this, ui, ctx, rr),
           onPointerDown: (x, y) => {
-            const L = layout4(panel.width);
+            const L = layout4(panel.width, panel.height, this, ui);
+            if (hit(L.handle, x, y, 2)) {
+              ui.drag = { y, view: L.view.h, nodeH: this.size[1] };
+              return true;
+            }
             if (ui.count && !ui.pending) {
-              const c = chips(panel.context, L.header);
-              if (hit(c.release, x, y, 3)) {
+              const t = tools(panel.context, L.toolbar);
+              if (hit(t.release, x, y, 3)) {
                 void release(this, ui);
                 return true;
               }
-              if (hit(c.clear, x, y, 3)) {
+              if (hit(t.clear, x, y, 3)) {
                 void clearTray(this, ui);
+                return true;
+              }
+              if (hit(t.sendAll, x, y, 3)) {
+                void release(this, ui, true);
+                return true;
+              }
+              if (hit(t.rateAll, x, y, 3)) {
+                ui.ratings = Array.from({ length: ui.count }, () => STARS);
+                saveRatings(this, ui);
                 return true;
               }
             }
             if (!ui.count) return false;
             const cells = gridCells(L.strip, ui.count);
-            const onStar = ui.pending ? null : starHit(x, y, cells, STAR_H);
-            if (onStar) {
-              ui.ratings[onStar.index] = nextRating(ui.ratings[onStar.index] ?? 0, onStar.star);
-              saveRatings(this, ui);
-              return true;
+            if (!ui.pending) {
+              const again = rerunHit(x, y, cells, STAR_H);
+              if (again != null && ui.rerunnable[again]) {
+                void rerun(this, ui, again);
+                return true;
+              }
+              const onStar = starHit(x, y, cells, STAR_H);
+              if (onStar) {
+                ui.ratings[onStar.index] = nextRating(ui.ratings[onStar.index] ?? 0, onStar.star);
+                saveRatings(this, ui);
+                return true;
+              }
             }
             const picked = cells.findIndex((c) => hit({ x: c.x, y: c.y, w: c.w, h: THUMB_H2 }, x, y));
             if (picked >= 0) {
@@ -3389,6 +3512,17 @@ function registerReview() {
               return true;
             }
             return false;
+          },
+          onPointerMove: (_x, y) => {
+            if (!ui.drag) return false;
+            setBaseView(this, ui.drag.view + (y - ui.drag.y));
+            setNodeHeight(this, ui.drag.nodeH + baseView(this) - ui.drag.view);
+            return true;
+          },
+          onPointerUp: () => {
+            if (!ui.drag) return false;
+            ui.drag = null;
+            return true;
           }
         });
         setTimeout(() => void syncState(this, ui), 0);

@@ -54,3 +54,38 @@ export function nextRating(current: number, clicked: number): number {
 export function keptCount(ratings: number[]): number {
   return ratings.filter((r) => r > 0).length;
 }
+
+/**
+ * The re-run button: the slot just past the fifth star in a cell's star row.
+ * Returns the cell's index, or null.
+ */
+export function rerunHit(x: number, y: number, cells: Cell[], starSize: number): number | null {
+  for (let index = 0; index < cells.length; index++) {
+    const c = cells[index];
+    const top = c.y + c.h - starSize;
+    const left = c.x + STARS * starSize;
+    if (x >= left && x <= c.x + c.w && y >= top && y <= c.y + c.h) return index;
+  }
+  return null;
+}
+
+/** Smallest and largest focus view a drag of the handle can make. */
+export const VIEW_MIN = 120;
+export const VIEW_MAX = 2400;
+
+export function clampView(h: number): number {
+  return Math.round(Math.min(VIEW_MAX, Math.max(VIEW_MIN, h)));
+}
+
+/**
+ * How tall the focus view draws.
+ *
+ * `base` is the height set with the handle. A node dragged taller than the
+ * panel needs (`spare` above zero) gives the extra to the view too, so both
+ * the handle and the node's own corner make the preview bigger. Space taken
+ * by new rows of thumbnails comes out of that extra first, never out of
+ * `base`.
+ */
+export function viewHeight(base: number, spare: number): number {
+  return clampView(base + Math.max(0, spare));
+}

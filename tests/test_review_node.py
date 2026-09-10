@@ -126,3 +126,36 @@ def test_the_schema():
 def test_every_run_executes():
     value = Node.fingerprint_inputs()
     assert isinstance(value, float) and math.isnan(value)
+
+
+class _Hidden:
+    def __init__(self, prompt=None, workflow=None):
+        self.unique_id = "4"
+        self.prompt = prompt
+        self.extra_pnginfo = {"workflow": workflow} if workflow is not None else None
+
+
+def test_a_collected_frame_keeps_its_runs_prompt_and_workflow(monkeypatch):
+    prompt = {"4": {"class_type": "PW_Review", "inputs": {}}}
+    monkeypatch.setattr(Node, "hidden", _Hidden(prompt, {"nodes": [1]}), raising=False)
+    Node.execute(image=_frames(1), auto_pass=False)
+    tray = review.get("4")
+    assert tray.prompts[0] is prompt and tray.workflows[0] == {"nodes": [1]}
+    assert tray.reruns == [False]
+
+
+def test_a_rerun_run_lands_next_to_the_frame_it_reran(monkeypatch):
+    base = {"4": {"class_type": "PW_Review", "inputs": {}}}
+    monkeypatch.setattr(Node, "hidden", _Hidden(base), raising=False)
+    Node.execute(image=_frames(2), auto_pass=False)
+    job = review.rerun_job("4", 0, "4")
+    monkeypatch.setattr(Node, "hidden", _Hidden(job["prompt"]), raising=False)
+    Node.execute(image=_frames(1, 0.5), auto_pass=False)
+    assert review.get("4").reruns == [False, True, False]
+
+
+def test_the_schema_asks_for_the_prompt_and_workflow():
+    from comfy_api.latest import io
+
+    hidden = Node.define_schema().hidden
+    assert io.Hidden.prompt in hidden and io.Hidden.extra_pnginfo in hidden

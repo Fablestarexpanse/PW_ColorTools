@@ -61,6 +61,7 @@ RATINGS = "/pw_color/review/{node_id}/ratings"
 RELEASE = "/pw_color/review/{node_id}/release"
 CLEAR = "/pw_color/review/{node_id}/clear"
 MODE = "/pw_color/review/{node_id}/mode"
+RERUN = "/pw_color/review/{node_id}/rerun/{index}"
 NODE = {"node_id": "4"}
 
 
@@ -80,13 +81,17 @@ def _json(res):
 
 
 def test_state_of_an_empty_tray():
-    assert _json(_call("GET", STATE, NODE)) == {"count": 0, "ratings": [], "pending": 0, "epoch": 0}
+    assert _json(_call("GET", STATE, NODE)) == {
+        "count": 0, "ratings": [], "pending": 0, "epoch": 0, "reruns": [], "rerunnable": [],
+    }
 
 
 def test_state_of_a_filling_tray():
     review.add("4", _frames(3))
     review.set_ratings("4", [4, 0, 2])
-    assert _json(_call("GET", STATE, NODE)) == {"count": 3, "ratings": [4, 0, 2], "pending": 0, "epoch": 0}
+    assert _json(_call("GET", STATE, NODE)) == {
+        "count": 3, "ratings": [4, 0, 2], "pending": 0, "epoch": 0, "reruns": [False] * 3, "rerunnable": [False] * 3,
+    }
 
 
 def test_state_shows_a_release_on_its_way():
@@ -163,7 +168,7 @@ def test_every_route_is_registered_once_and_changes_are_post_only():
     table = rs._routing_table(_Web)
     keys = [(method, path) for path, method, _ in table]
     assert len(keys) == len(set(keys))
-    for path in (RATINGS, RELEASE, CLEAR, MODE):
+    for path in (RATINGS, RELEASE, CLEAR, MODE, RERUN):
         assert ("POST", path) in keys and ("GET", path) not in keys
 
 
@@ -173,3 +178,30 @@ def test_registering_twice_is_a_no_op():
         assert rs.register_review_routes() is True
     finally:
         rs._routes_registered = False
+
+
+def test_send_everything_counts_the_unrated_too():
+    review.add("4", _frames(3))
+    assert _json(_call("POST", RELEASE, NODE, {"ratings": [0, 4, 0], "everything": True})) == {"kept": 3}
+
+
+def test_everything_must_be_a_real_true():
+    review.add("4", _frames(3))
+    assert _json(_call("POST", RELEASE, NODE, {"ratings": [0, 4, 0], "everything": "yes"})) == {"kept": 1}
+
+
+def test_rerun_returns_the_frames_prompt_with_new_seeds():
+    prompt = {"4": {"class_type": "PW_Review", "inputs": {}}, "9": {"class_type": "KSampler", "inputs": {"seed": 5}}}
+    review.add("4", _frames(1), prompt=prompt, workflow={"w": 1})
+    res = _call("POST", RERUN, {"node_id": "4", "index": "0"})
+    job = _json(res)
+    assert res.status == 200 and job["workflow"] == {"w": 1}
+    assert job["prompt"]["9"]["inputs"]["seed"] != 5
+    assert job["prompt"]["4"]["_meta"][review.RERUN_KEY] == review.get("4").uids[0]
+    assert _json(_call("GET", STATE, NODE))["rerunnable"] == [True]
+
+
+def test_rerun_errors():
+    review.add("4", _frames(1))
+    assert _call("POST", RERUN, {"node_id": "4", "index": "0"}).status == 404, "no prompt was kept"
+    assert _call("POST", RERUN, {"node_id": "4", "index": "x"}).status == 400

@@ -12,7 +12,12 @@ Each run does one of three things, and none of them waits:
   sends the keepers downstream, best first. It asks for no new image, so the
   sampler and everything upstream of this node are skipped for that run.
 
-That last part is what the image input being *lazy* is for. ComfyUI asks the
+A frame can also be **re-run**: the panel queues the prompt that made it
+again with new seeds, marked with the frame's id, and the result is collected
+right after the frame it re-ran. That is why the node keeps each run's prompt
+and workflow, which it reads from its hidden inputs.
+
+The delivery part is what the image input being *lazy* is for. ComfyUI asks the
 node, through `check_lazy_status`, which lazy inputs it needs before running
 anything upstream; a node with a delivery waiting says "none".
 
@@ -56,6 +61,15 @@ def _push(node_id: str) -> None:
         PromptServer.instance.send_sync("pw_color.review", data)
     except Exception:  # pragma: no cover - no server in tests
         _log.debug("PW Color: could not push the tray state", exc_info=True)
+
+
+def _run_record(cls: type, node_id: str) -> tuple[object, object, int | None]:
+    """This run's prompt and workflow, and the frame it re-runs, if any."""
+    hidden = getattr(cls, "hidden", None)
+    prompt = getattr(hidden, "prompt", None)
+    extra = getattr(hidden, "extra_pnginfo", None)
+    workflow = extra.get("workflow") if isinstance(extra, dict) else None
+    return prompt, workflow, review.rerun_origin(prompt, node_id)
 
 
 def _blocked() -> io.NodeOutput:
@@ -114,7 +128,7 @@ class PW_Review(io.ComfyNode):
                 ),
             ],
             outputs=[io.Image.Output(display_name="image")],
-            hidden=[io.Hidden.unique_id],
+            hidden=[io.Hidden.unique_id, io.Hidden.prompt, io.Hidden.extra_pnginfo],
         )
 
     @classmethod
@@ -153,7 +167,8 @@ class PW_Review(io.ComfyNode):
         if review.auto_pass(node_id, auto_pass):
             return io.NodeOutput(image)
 
-        review.add(node_id, image)
+        prompt, workflow, rerun_of = _run_record(cls, node_id)
+        review.add(node_id, image, prompt=prompt, workflow=workflow, rerun_of=rerun_of)
         _push(node_id)
         return _blocked()
 

@@ -5,7 +5,7 @@ rather than broadcast colourists. From **Promptwaffle / BotWaffle Studio**.
 
 ![Before and after](docs/images/before_after.png)
 
-> **Status: 2.3.** Nine nodes, built and tested: PW Look, PW Curves, PW Grain,
+> **Status: 2.4.** Nine nodes, built and tested: PW Look, PW Curves, PW Grain,
 > PW Optics, PW Match Source, PW Palette, PW Scopes, PW Look I/O and PW Review.
 
 ## Install
@@ -26,7 +26,7 @@ already has. The web bundle is committed, so a plain clone works with no node
 toolchain.
 
 **Requires** ComfyUI 0.27+ with frontend 1.40+. The colour nodes are tested on
-frontend 1.47.11 and 1.49.6; everything in 2.3, PW Review included, is
+frontend 1.47.11 and 1.49.6; everything in 2.4, PW Review included, is
 verified on ComfyUI 0.34.0 with frontend 1.49.6.
 
 **Node design.** Panels are hosted on DOM widgets, so the pack looks and works
@@ -298,13 +298,22 @@ images:
 
 - Queue as many runs as you like. Nothing downstream of the node runs while
   images are collecting, so nothing is saved until you choose.
-- Click a thumbnail to see it large in the view above the grid.
+- Click a thumbnail to see it large in the view above the grid. Drag the grip
+  under the view to make it taller or shorter; dragging the node's corner out
+  gives the view the extra room too. The height is saved with the workflow.
 - Click a star under a thumbnail to rate it one to five. Click the same star
   again to clear it back to unrated. Ratings are kept as you go, even while
   new images keep arriving.
+- Click the **R** after a frame's stars to re-run it: the same prompt, LoRAs
+  and settings with a new seed, queued at the front. The new image lands right
+  after the one it re-ran, marked with an R of its own. Click R again for
+  another; each click queues one.
 - Click **release** to send the rated images on. It queues one short run at
   the front of the queue that delivers them: it skips the sampler and runs
   only the nodes after PW Review.
+- **rate all 5** gives every frame five stars, a starting point to knock
+  individual frames down from. **send all** sends everything, rated frames
+  first by rating and then the unrated ones in the order they arrived.
 - Click **clear** to empty the tray without sending anything.
 
 The header keeps count as you go: above, 25 in the tray and 17 kept.
@@ -326,6 +335,12 @@ reset turns on.
   restarting ComfyUI empties it.
 - Images that finish after you press release were not part of that review, so
   they stay in the tray for the next one.
+- A re-run changes every seed in the prompt: any `seed` or `noise_seed` input,
+  and the node that feeds one when it is wired, such as a seed primitive. One
+  seed node driving several inputs gives them all the same new seed. Nothing
+  else changes, so a run that made a batch of four re-runs as a batch of four.
+- A re-run goes through the node like any other run, so with auto_pass on it
+  goes straight through instead of into the tray.
 - Images from runs at different resolutions are resized to match the best-rated
   one, the same way core's Image Batch node does it.
 - Widen the node for more thumbnails per row. The grid reflows, which is how 25
